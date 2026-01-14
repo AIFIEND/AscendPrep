@@ -23,7 +23,7 @@ export class ApiError extends Error {
 // Helper to join paths cleanly
 export function apiUrl(path: string) {
   const cleanPath = path.replace(/^\/+/, "");
-    if (API_BASE.endsWith("/api") && cleanPath.startsWith("api/")) {
+  if (API_BASE.endsWith("/api") && cleanPath.startsWith("api/")) {
     const trimmedPath = cleanPath.replace(/^api\//, "");
     return `${API_BASE}/${trimmedPath}`;
   }
@@ -32,7 +32,7 @@ export function apiUrl(path: string) {
 
 export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
   const url = apiUrl(endpoint);
-  
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
@@ -47,17 +47,17 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
     let errorMessage = `API Error: ${response.status} ${response.statusText}`;
     let errorData: unknown;
     try {
-        errorData = await response.json();
-        if (
-          typeof errorData === "object" &&
-          errorData !== null &&
-          "message" in errorData &&
-          typeof (errorData as { message?: unknown }).message === "string"
-        ) {
-          errorMessage = (errorData as { message: string }).message;
-        }
+      errorData = await response.json();
+      if (
+        typeof errorData === "object" &&
+        errorData !== null &&
+        "message" in errorData &&
+        typeof (errorData as { message?: unknown }).message === "string"
+      ) {
+        errorMessage = (errorData as { message: string }).message;
+      }
     } catch (e) {
-        // If JSON parse fails, ignore
+      // If JSON parse fails, ignore
     }
     throw new ApiError(errorMessage, response.status, response.statusText, errorData);
   }
@@ -70,7 +70,7 @@ export const getJson = async <T = any>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> => {
-  const res = await apiFetch(endpoint, { ...options, method: 'GET' });
+  const res = await apiFetch(endpoint, { ...options, method: "GET" });
   return res.json();
 };
 
@@ -81,8 +81,7 @@ export const postJson = async <T = any>(
 ): Promise<T> => {
   const res = await apiFetch(endpoint, {
     ...options,
-    method: 'POST',
-    
+    method: "POST",
     body: JSON.stringify(data),
   });
   return res.json();
