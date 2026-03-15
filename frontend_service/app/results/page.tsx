@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getJson } from "@/lib/api";
+import { ApiError, getJson } from "@/lib/api";
 import { CheckCircle, Home, RotateCcw, XCircle } from "lucide-react";
 import { Question } from "@/types";
 
@@ -18,6 +18,18 @@ type AttemptResultResponse = {
     answers: Record<string, string>;
   };
   questions: Question[];
+};
+
+type ResumeResponse = {
+  questions: Question[];
+  answersSoFar: Record<string, string>;
+};
+
+type AttemptSummary = {
+  id: number;
+  score: number | null;
+  total_questions: number;
+  answers: Record<string, string>;
 };
 
 export default function ResultsPage() {
@@ -50,16 +62,54 @@ export default function ResultsPage() {
     setError(null);
     setLoading(true);
 
-    getJson<AttemptResultResponse>(`/api/quiz/attempt/${attemptId}/results`, {
-      headers: { Authorization: `Bearer ${session.user.backendToken}` },
-      cache: "no-store",
-    })
-      .then((resp) => {
+    (async () => {
+      try {
+        const resp = await getJson<AttemptResultResponse>(`/api/quiz/attempt/${attemptId}/results`, {
+          headers: { Authorization: `Bearer ${session.user.backendToken}` },
+          cache: "no-store",
+        });
         setData(resp);
         setError(null);
-      })
-      .catch(() => setError("Could not load quiz results."))
-      .finally(() => setLoading(false));
+      } catch (err) {
+        const status = err instanceof ApiError ? err.status : undefined;
+        if (status === 404 || status === 405) {
+          try {
+            const [resume, attempts] = await Promise.all([
+              getJson<ResumeResponse>(`/api/quiz/resume/${attemptId}`, {
+                headers: { Authorization: `Bearer ${session.user.backendToken}` },
+                cache: "no-store",
+              }),
+              getJson<AttemptSummary[]>("/api/user/attempts", {
+                headers: { Authorization: `Bearer ${session.user.backendToken}` },
+                cache: "no-store",
+              }),
+            ]);
+
+            const summary = attempts.find((a) => String(a.id) === String(attemptId));
+            if (!summary) {
+              setError("Could not load quiz results.");
+            } else {
+              setData({
+                attempt: {
+                  id: summary.id,
+                  score: summary.score,
+                  total_questions: summary.total_questions,
+                  answers: resume.answersSoFar || summary.answers || {},
+                },
+                questions: resume.questions || [],
+              });
+              setError(null);
+            }
+          } catch {
+            setError("Could not load quiz results.");
+          }
+        } else {
+          setError("Could not load quiz results.");
+        }
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [attemptId, session?.user?.backendToken, status]);
 
   const correctAnswers = useMemo(() => {

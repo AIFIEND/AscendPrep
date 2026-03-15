@@ -34,9 +34,13 @@ function PracticePageContent() {
   const attemptIdParam = searchParams.get("attemptId");
   const categoriesParam = searchParams.get("categories");
   const difficultiesParam = searchParams.get("difficulties");
+  const numQuestionsParam = searchParams.get("numQuestions");
   const sessionToken = session?.user?.backendToken;
   const parsedAttemptId = attemptIdParam ? Number.parseInt(attemptIdParam, 10) : null;
   const resolvedAttemptId = attemptId ?? (Number.isFinite(parsedAttemptId) ? parsedAttemptId : null);
+  const requestedQuestionCount = numQuestionsParam
+    ? Math.max(1, Number.parseInt(numQuestionsParam, 10) || 0)
+    : null;
 
   useEffect(() => {
     if (!session) return;
@@ -53,13 +57,14 @@ function PracticePageContent() {
 
           const savedAnswers = data.answersSoFar || {};
           setAttemptId(parseInt(attemptIdParam, 10));
-          setQuestions(data.questions);
+          const trimmedQuestions = requestedQuestionCount ? data.questions.slice(0, requestedQuestionCount) : data.questions;
+          setQuestions(trimmedQuestions);
           setSelectedAnswers(savedAnswers);
-          const firstUnansweredIndex = data.questions.findIndex(
+          const firstUnansweredIndex = trimmedQuestions.findIndex(
             (q: Question) => !savedAnswers.hasOwnProperty(q.id)
           );
           setCurrentQuestionIndex(
-            firstUnansweredIndex === -1 ? data.questions.length - 1 : firstUnansweredIndex
+            firstUnansweredIndex === -1 ? trimmedQuestions.length - 1 : firstUnansweredIndex
           );
         } else {
           if (quizCreationInitiated.current) return;
@@ -77,6 +82,7 @@ function PracticePageContent() {
               categories: cats,
               difficulties: diffs,
               testName,
+              numQuestions: requestedQuestionCount ?? undefined,
             },
             {
               headers: {
@@ -85,7 +91,8 @@ function PracticePageContent() {
             }
           );
           setAttemptId(data.attemptId);
-          setQuestions(data.questions);
+          const trimmedQuestions = requestedQuestionCount ? data.questions.slice(0, requestedQuestionCount) : data.questions;
+          setQuestions(trimmedQuestions);
         }
       } catch (error) {
         console.error("Failed to load quiz:", error);
@@ -96,7 +103,7 @@ function PracticePageContent() {
     };
 
     loadQuiz();
-  }, [attemptIdParam, categoriesParam, difficultiesParam, sessionToken, session]);
+  }, [attemptIdParam, categoriesParam, difficultiesParam, numQuestionsParam, sessionToken, session]);
 
   if (status === "loading") {
     return <p className="text-center mt-8">Loading...</p>;
