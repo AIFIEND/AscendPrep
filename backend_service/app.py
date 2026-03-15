@@ -370,10 +370,9 @@ def start_quiz(current_user):
 def submit_quiz(current_user):
     data = request.get_json() or {}
     attempt_id = data.get('attemptId')
-    score = data.get('score')
 
-    if attempt_id is None or score is None:
-        return jsonify({'message': 'attemptId and score required'}), 400
+    if attempt_id is None:
+        return jsonify({'message': 'attemptId required'}), 400
 
     attempt = QuizAttempt.query.filter_by(id=attempt_id, user_id=current_user.id).first()
     if not attempt:
@@ -410,6 +409,22 @@ def submit_quiz(current_user):
     db.session.commit()
 
     return jsonify({'message': 'Quiz submitted', 'attempt': attempt.to_dict()}), 200
+
+@app.route('/api/quiz/attempt/<int:attempt_id>/results', methods=['GET'])
+@token_required
+def get_attempt_results(current_user, attempt_id):
+    attempt = QuizAttempt.query.filter_by(id=attempt_id, user_id=current_user.id).first()
+    if not attempt:
+        return jsonify({'message': 'Attempt not found'}), 404
+
+    questions = Question.query.filter(Question.id.in_(attempt.question_ids)).all()
+    id_to_q = {q.id: q for q in questions}
+    ordered_questions = [id_to_q[qid].to_dict() for qid in attempt.question_ids if qid in id_to_q]
+
+    return jsonify({
+        'attempt': attempt.to_dict(),
+        'questions': ordered_questions,
+    }), 200
 
 @app.route('/api/user/progress', methods=['GET'])
 @token_required

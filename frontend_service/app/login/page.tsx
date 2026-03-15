@@ -22,14 +22,19 @@ export default function LoginPage() {
     e.preventDefault();
     setError('');
 
-    // The signIn function will handle the entire login flow.
-    // On success, it will automatically redirect to the callbackUrl.
-    // On failure, it will reload the login page with an error message in the URL.
-    await signIn('credentials', {
+    const result = await signIn('credentials', {
       username: username,
       password: password,
-      callbackUrl: '/dashboard', // Explicitly redirect to the dashboard on success
+      redirect: false,
+      callbackUrl: '/dashboard',
     });
+
+    if (!result || result.error) {
+      setError('Invalid username or password.');
+      return;
+    }
+
+    router.push(result.url || '/dashboard');
   };
 
   return (

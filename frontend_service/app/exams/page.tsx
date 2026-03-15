@@ -23,6 +23,10 @@ export default function ExamsPage() {
       .then((data) => {
         setExams(data);
         setLoading(false);
+      })
+      .catch(() => {
+        setExams([]);
+        setLoading(false);
       });
   }, []); // The empty array ensures this effect runs only once
 

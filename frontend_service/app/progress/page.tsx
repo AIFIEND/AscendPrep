@@ -2,7 +2,7 @@
 // NEW FILE: Server component to fetch and display the user's progress page.
 
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { ProgressClient } from "./_components/progress-client";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";

@@ -13,17 +13,18 @@ import { postJson, apiFetch } from "@/lib/api";
 
 interface QuizClientProps {
   attemptId: number;
-  initialQuestions?: Question[]; 
+  initialQuestions?: Question[];
+  initialAnswers?: Record<number, string>;
 }
 
-export default function QuizClient({ attemptId, initialQuestions }: QuizClientProps) {
+export default function QuizClient({ attemptId, initialQuestions, initialAnswers }: QuizClientProps) {
   const router = useRouter();
   const { data: session } = useSession(); // <--- GET SESSION
   const token = (session?.user as any)?.backendToken; // <--- EXTRACT TOKEN
 
   const [questions, setQuestions] = useState<Question[]>(initialQuestions || []);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [answers, setAnswers] = useState<Record<number, string>>(initialAnswers || {});
   const [loading, setLoading] = useState(!initialQuestions);
   const [submitting, setSubmitting] = useState(false);
 
@@ -69,15 +70,8 @@ export default function QuizClient({ attemptId, initialQuestions }: QuizClientPr
     if (!token) return;
     setSubmitting(true);
     try {
-        let correctCount = 0;
-        questions.forEach(q => {
-            if (answers[q.id] === q.correctAnswer) correctCount++;
-        });
-        const finalScore = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
-
         await postJson("/api/quiz/submit", {
-            attemptId,
-            score: finalScore 
+            attemptId
         }, {
             headers: { "Authorization": `Bearer ${token}` } // <--- ATTACH TOKEN
         });

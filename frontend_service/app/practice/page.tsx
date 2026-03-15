@@ -215,7 +215,6 @@ try {
     '/api/quiz/submit',
     {
       attemptId,
-      score: Math.round(finalScore),
     },
     {
       headers: {

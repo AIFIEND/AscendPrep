@@ -4,7 +4,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { getJson } from "@/lib/api";
+import { ApiError, getJson } from "@/lib/api";
 import { useSession } from "next-auth/react";
 import {
   Card,
@@ -79,8 +79,8 @@ useEffect(() => {
         },
       });
       setState(resp);
-    } catch (e: any) {
-      const status = e?.status;
+    } catch (e: unknown) {
+      const status = e instanceof ApiError ? e.status : undefined;
       if (status === 401 || status === 403) setError("AccessDenied");
       else setError("LoadFailed");
     }
