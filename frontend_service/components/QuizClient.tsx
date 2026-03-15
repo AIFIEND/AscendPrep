@@ -69,17 +69,29 @@ export default function QuizClient({ attemptId, initialQuestions, initialAnswers
   const handleSubmit = async () => {
     if (!token) return;
     setSubmitting(true);
+
+    const correctCount = questions.reduce(
+      (acc, q) => (answers[q.id] === q.correctAnswer ? acc + 1 : acc),
+      0
+    );
+    const computedScore = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
+
     try {
-        await postJson("/api/quiz/submit", {
-            attemptId
-        }, {
-            headers: { "Authorization": `Bearer ${token}` } // <--- ATTACH TOKEN
-        });
-        
-        router.push("/results?attemptId=" + attemptId);
+      await postJson(
+        "/api/quiz/submit",
+        {
+          attemptId,
+          score: computedScore,
+        },
+        {
+          headers: { "Authorization": `Bearer ${token}` },
+        }
+      );
+
+      router.push("/results?attemptId=" + attemptId);
     } catch (err) {
-        console.error("Submit failed", err);
-        setSubmitting(false);
+      console.error("Submit failed", err);
+      setSubmitting(false);
     }
   };
 

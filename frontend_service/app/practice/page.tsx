@@ -182,7 +182,7 @@ function PracticePageContent() {
     try {
       await postJson(
         "/api/quiz/submit",
-        { attemptId: resolvedAttemptId },
+        { attemptId: resolvedAttemptId, score: Math.round(finalScore) },
         {
           headers: {
             Authorization: `Bearer ${sessionToken}`,
