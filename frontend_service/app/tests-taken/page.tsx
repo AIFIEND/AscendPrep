@@ -1,9 +1,7 @@
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { TestsTakenClient } from "./_components/tests-taken-client";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import Link from "next/link";
+import { AuthRequiredState } from "@/components/auth-required-state";
 import { getJson } from '@/lib/api';
 
 
@@ -61,21 +59,7 @@ export default async function TestsTakenPage() {
 
   // If there's no session, show the access denied message
   if (!session) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Card className="w-full max-w-md text-center">
-          <CardHeader>
-            <CardTitle>Access Denied</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p>You need to be logged in to view this page.</p>
-            <Button asChild>
-              <Link href="/login">Go to Login</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
+    return <AuthRequiredState description="You need to be logged in to view your test history." />;
   }
 
   // If the user is logged in, fetch their tests and render the client component

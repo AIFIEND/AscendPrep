@@ -69,7 +69,7 @@ export const ProgressClient = ({ data }: ProgressClientProps) => {
           <CardDescription>Your accuracy across all completed quizzes, sorted from highest to lowest.</CardDescription>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={400}>
+          <div className="w-full overflow-x-auto"><div className="min-w-[640px] h-[360px] sm:h-[400px]"><ResponsiveContainer width="100%" height="100%">
             <BarChart data={overallData} layout="vertical" margin={{ top: 5, right: 30, left: 120, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" domain={[0, 100]} unit="%" />
@@ -78,7 +78,7 @@ export const ProgressClient = ({ data }: ProgressClientProps) => {
               <Legend />
               <Bar dataKey="Accuracy (%)" fill="#8884d8" barSize={20} />
             </BarChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer></div></div>
         </CardContent>
       </Card>
 
@@ -88,7 +88,7 @@ export const ProgressClient = ({ data }: ProgressClientProps) => {
           <CardDescription>Your score for each category within every test you've taken.</CardDescription>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={400}>
+          <div className="w-full overflow-x-auto"><div className="min-w-[680px] h-[360px] sm:h-[400px]"><ResponsiveContainer width="100%" height="100%">
             <LineChart data={timeSeriesData} margin={{ top: 5, right: 30, left: 20, bottom: 80 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" angle={-45} textAnchor="end" interval={0} height={100} tick={{fontSize: 12}}/>
@@ -99,7 +99,7 @@ export const ProgressClient = ({ data }: ProgressClientProps) => {
                 <Line key={category} type="monotone" dataKey={category} stroke={colors[index % colors.length]} connectNulls />
               ))}
             </LineChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer></div></div>
         </CardContent>
       </Card>
     </div>

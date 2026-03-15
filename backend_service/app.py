@@ -345,10 +345,20 @@ def start_quiz(current_user):
     if cats: q = q.filter(Question.category.in_(cats))
     if diffs: q = q.filter(Question.difficulty.in_(diffs))
     selected = q.all()
-    
+
+    requested_count = data.get('numQuestions')
+    if requested_count is not None:
+        try:
+            requested_count = max(1, int(requested_count))
+        except (TypeError, ValueError):
+            return jsonify({'message': 'numQuestions must be a positive integer'}), 400
+
     # NEW: Shuffle the selected questions randomly.
     random.shuffle(selected)
-    
+
+    if requested_count is not None:
+        selected = selected[:requested_count]
+
     ids = [q.id for q in selected]
     new_attempt = QuizAttempt(
         test_name=data.get('testName', 'Practice Quiz'),
@@ -370,10 +380,14 @@ def start_quiz(current_user):
 def submit_quiz(current_user):
     data = request.get_json() or {}
     attempt_id = data.get('attemptId')
-    score = data.get('score')
 
-    if attempt_id is None or score is None:
-        return jsonify({'message': 'attemptId and score required'}), 400
+    if attempt_id is None:
+        return jsonify({'message': 'attemptId required'}), 400
+
+    try:
+        attempt_id = int(attempt_id)
+    except (TypeError, ValueError):
+        return jsonify({'message': 'attemptId must be a valid integer'}), 400
 
     attempt = QuizAttempt.query.filter_by(id=attempt_id, user_id=current_user.id).first()
     if not attempt:
@@ -410,6 +424,22 @@ def submit_quiz(current_user):
     db.session.commit()
 
     return jsonify({'message': 'Quiz submitted', 'attempt': attempt.to_dict()}), 200
+
+@app.route('/api/quiz/attempt/<int:attempt_id>/results', methods=['GET'])
+@token_required
+def get_attempt_results(current_user, attempt_id):
+    attempt = QuizAttempt.query.filter_by(id=attempt_id, user_id=current_user.id).first()
+    if not attempt:
+        return jsonify({'message': 'Attempt not found'}), 404
+
+    questions = Question.query.filter(Question.id.in_(attempt.question_ids)).all()
+    id_to_q = {q.id: q for q in questions}
+    ordered_questions = [id_to_q[qid].to_dict() for qid in attempt.question_ids if qid in id_to_q]
+
+    return jsonify({
+        'attempt': attempt.to_dict(),
+        'questions': ordered_questions,
+    }), 200
 
 @app.route('/api/user/progress', methods=['GET'])
 @token_required

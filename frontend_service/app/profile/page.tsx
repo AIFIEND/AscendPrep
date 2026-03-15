@@ -1,11 +1,10 @@
-// app/profile/page.tsx
-
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getJson } from '@/lib/api';
+import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 
 interface Attempt {
@@ -25,9 +24,7 @@ export default function ProfilePage() {
       if (!session?.user?.backendToken) return;
       try {
         const data = await getJson('/api/user/attempts', {
-          headers: {
-            Authorization: `Bearer ${session.user.backendToken}`,
-          },
+          headers: { Authorization: `Bearer ${session.user.backendToken}` },
         });
         setAttempts(data);
       } catch (error) {
@@ -37,17 +34,15 @@ export default function ProfilePage() {
     fetchAttempts();
   }, [session]);
 
-  if (status === 'loading') {
-    return <div className="p-4">Loading...</div>;
-  }
+  if (status === 'loading') return <div className="p-4">Loading...</div>;
 
   if (status === 'unauthenticated') {
     return (
       <div className="p-4">
         <p>Please log in to view your profile.</p>
-        <button onClick={() => router.push('/login')} className="mt-2 px-4 py-2 bg-blue-500 text-white rounded">
+        <Button onClick={() => router.push('/login')} className="mt-2">
           Go to Login
-        </button>
+        </Button>
       </div>
     );
   }
@@ -64,13 +59,11 @@ export default function ProfilePage() {
             <p>You haven't completed any quizzes yet.</p>
           ) : (
             <ul className="space-y-3">
-              {attempts.map(attempt => (
+              {attempts.map((attempt) => (
                 <li key={attempt.id} className="p-3 border rounded-md flex justify-between items-center">
                   <div>
                     <p className="font-semibold">Score: {attempt.score}%</p>
-                    <p className="text-sm text-muted-foreground">
-                      On {attempt.total_questions} questions
-                    </p>
+                    <p className="text-sm text-muted-foreground">On {attempt.total_questions} questions</p>
                   </div>
                   <p className="text-sm text-muted-foreground">{new Date(attempt.timestamp).toLocaleString()}</p>
                 </li>

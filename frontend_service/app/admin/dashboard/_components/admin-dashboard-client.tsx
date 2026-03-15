@@ -4,7 +4,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { getJson } from "@/lib/api";
+import { ApiError, getJson } from "@/lib/api";
 import { useSession } from "next-auth/react";
 import {
   Card,
@@ -79,8 +79,8 @@ useEffect(() => {
         },
       });
       setState(resp);
-    } catch (e: any) {
-      const status = e?.status;
+    } catch (e: unknown) {
+      const status = e instanceof ApiError ? e.status : undefined;
       if (status === 401 || status === 403) setError("AccessDenied");
       else setError("LoadFailed");
     }
@@ -104,7 +104,12 @@ useEffect(() => {
   }
 
   if (error === "LoadFailed") {
-    return <p>Could not load admin analytics.</p>;
+    return (
+      <Card>
+        <CardHeader><CardTitle>Could not load admin analytics</CardTitle></CardHeader>
+        <CardContent><p className="text-muted-foreground">Please refresh and try again.</p></CardContent>
+      </Card>
+    );
   }
 
   if (state === null) {
@@ -170,7 +175,7 @@ useEffect(() => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={400}>
+          <div className="w-full overflow-x-auto"><div className="min-w-[700px] h-[360px] sm:h-[400px]"><ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={categoryData}
               margin={{ top: 5, right: 30, left: 20, bottom: 80 }}
@@ -189,7 +194,7 @@ useEffect(() => {
               <Legend />
               <Bar dataKey="Accuracy (%)" />
             </BarChart>
-          </ResponsiveContainer>
+          </ResponsiveContainer></div></div>
         </CardContent>
       </Card>
 

@@ -6,6 +6,20 @@ const API_BASE = (
   "http://localhost:5000"
 ).replace(/\/+$/, "");
 
+export class ApiError extends Error {
+  status: number;
+  statusText: string;
+  data?: unknown;
+
+  constructor(message: string, status: number, statusText: string, data?: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.statusText = statusText;
+    this.data = data;
+  }
+}
+
 // Helper to join paths cleanly
 export function apiUrl(path: string) {
   const cleanPath = path.replace(/^\/+/, "");
@@ -31,13 +45,21 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
 
   if (!response.ok) {
     let errorMessage = `API Error: ${response.status} ${response.statusText}`;
+    let errorData: unknown;
     try {
-        const errorData = await response.json();
-        if (errorData.message) errorMessage = errorData.message;
+        errorData = await response.json();
+        if (
+          typeof errorData === "object" &&
+          errorData !== null &&
+          "message" in errorData &&
+          typeof (errorData as { message?: unknown }).message === "string"
+        ) {
+          errorMessage = (errorData as { message: string }).message;
+        }
     } catch (e) {
         // If JSON parse fails, ignore
     }
-    throw new Error(errorMessage);
+    throw new ApiError(errorMessage, response.status, response.statusText, errorData);
   }
 
   return response;
