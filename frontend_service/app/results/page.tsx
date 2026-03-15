@@ -22,7 +22,7 @@ type AttemptResultResponse = {
 
 export default function ResultsPage() {
   const searchParams = useSearchParams();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [data, setData] = useState<AttemptResultResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,20 +36,31 @@ export default function ResultsPage() {
       return;
     }
 
+    if (status === "loading") {
+      setLoading(true);
+      return;
+    }
+
     if (!session?.user?.backendToken) {
       setError("You must be logged in to view quiz results.");
       setLoading(false);
       return;
     }
 
+    setError(null);
+    setLoading(true);
+
     getJson<AttemptResultResponse>(`/api/quiz/attempt/${attemptId}/results`, {
       headers: { Authorization: `Bearer ${session.user.backendToken}` },
       cache: "no-store",
     })
-      .then((resp) => setData(resp))
+      .then((resp) => {
+        setData(resp);
+        setError(null);
+      })
       .catch(() => setError("Could not load quiz results."))
       .finally(() => setLoading(false));
-  }, [attemptId, session?.user?.backendToken]);
+  }, [attemptId, session?.user?.backendToken, status]);
 
   const correctAnswers = useMemo(() => {
     if (!data) return 0;
