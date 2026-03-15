@@ -1,10 +1,9 @@
-// app/start-quiz/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react"; // <--- IMPORT SESSION
-import { apiFetch, postJson } from "@/lib/api"; 
+import { useSession } from "next-auth/react";
+import { apiFetch, getJson, postJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -15,25 +14,30 @@ import {
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Slider } from "@/components/ui/slider";
+import { toast } from "sonner";
+
+type Config = {
+  categories: string[];
+  difficulties: string[];
+};
 
 export default function StartQuizPage() {
   const router = useRouter();
-  const { data: session } = useSession(); // <--- GET SESSION
-  const token = (session?.user as any)?.backendToken; // <--- EXTRACT TOKEN
+  const { data: session } = useSession();
+  const token = session?.user?.backendToken;
 
-  const [config, setConfig] = useState<{
-    categories: string[];
-    difficulties: string[];
-  } | null>(null);
-
+  const [config, setConfig] = useState<Config | null>(null);
   const [selectedCats, setSelectedCats] = useState<string[]>([]);
   const [selectedDiffs, setSelectedDiffs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [maxAvailable, setMaxAvailable] = useState(0);
+  const [questionCount, setQuestionCount] = useState(10);
 
-  // 1. Load available categories/difficulties
   useEffect(() => {
-    // This endpoint is public, so no token needed
     apiFetch("/api/quiz-config")
       .then((res) => res.json())
       .then((data) => {
@@ -42,32 +46,74 @@ export default function StartQuizPage() {
       })
       .catch((err) => {
         console.error("Failed to load config", err);
+        setErrorMsg("Could not load quiz configuration.");
         setLoading(false);
       });
   }, []);
 
-  // 2. Handle Start
+  useEffect(() => {
+    if (!config) return;
+
+    const params = new URLSearchParams();
+    if (selectedCats.length > 0) params.set("categories", selectedCats.join(","));
+    if (selectedDiffs.length > 0) params.set("difficulties", selectedDiffs.join(","));
+
+    getJson<any[]>(`/api/questions${params.toString() ? `?${params.toString()}` : ""}`)
+      .then((questions) => {
+        const max = questions.length;
+        setMaxAvailable(max);
+        if (max === 0) {
+          setQuestionCount(0);
+          return;
+        }
+        setQuestionCount((prev) => Math.min(Math.max(prev, 1), max));
+      })
+      .catch(() => {
+        setMaxAvailable(0);
+      });
+  }, [config, selectedCats, selectedDiffs]);
+
+  const questionLabel = useMemo(() => {
+    if (maxAvailable === 0) return "No questions available for this filter";
+    return `${questionCount} question${questionCount === 1 ? "" : "s"} selected (max ${maxAvailable})`;
+  }, [questionCount, maxAvailable]);
+
   const handleStart = async () => {
+    setErrorMsg(null);
     if (!token) {
-        alert("You must be logged in to start a quiz.");
-        return;
+      const message = "You must be logged in to start a quiz.";
+      setErrorMsg(message);
+      toast.error(message);
+      return;
     }
+    if (maxAvailable === 0) {
+      const message = "No questions match your current filters.";
+      setErrorMsg(message);
+      toast.error(message);
+      return;
+    }
+
     setStarting(true);
     try {
-      // Pass the token in the headers explicitly
-      const res = await postJson("/api/quiz/start", {
-        categories: selectedCats,
-        difficulties: selectedDiffs,
-        testName: "Custom Practice",
-      }, {
-        headers: { "Authorization": `Bearer ${token}` } // <--- ATTACH TOKEN
-      });
+      const res = await postJson(
+        "/api/quiz/start",
+        {
+          categories: selectedCats,
+          difficulties: selectedDiffs,
+          numQuestions: questionCount,
+          testName: "Custom Practice",
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
 
+      toast.success("Quiz started. Good luck!");
       router.push(`/practice?attemptId=${res.attemptId}`);
-} catch (err: any) {
-      console.error("Failed to start quiz", err);
-      // NEW: Show the error to the user
-      alert(`Error starting quiz: ${err.message}`);
+    } catch (err: any) {
+      const message = err?.message || "Failed to start quiz.";
+      setErrorMsg(message);
+      toast.error(message);
       setStarting(false);
     }
   };
@@ -83,8 +129,13 @@ export default function StartQuizPage() {
           <CardDescription>Select your preferences below.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          
-          {/* Categories */}
+          {errorMsg && (
+            <Alert variant="destructive">
+              <AlertTitle>Unable to start quiz</AlertTitle>
+              <AlertDescription>{errorMsg}</AlertDescription>
+            </Alert>
+          )}
+
           <div className="space-y-2">
             <h3 className="font-semibold">Categories</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -104,7 +155,6 @@ export default function StartQuizPage() {
             </div>
           </div>
 
-          {/* Difficulties */}
           <div className="space-y-2">
             <h3 className="font-semibold">Difficulties</h3>
             <div className="flex flex-wrap gap-4">
@@ -124,14 +174,25 @@ export default function StartQuizPage() {
             </div>
           </div>
 
-          <Button 
-            onClick={handleStart} 
-            disabled={starting} 
-            className="w-full"
-          >
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <h3 className="font-semibold">Number of Questions</h3>
+              <span className="text-sm text-muted-foreground">{questionLabel}</span>
+            </div>
+            <Slider
+              value={[questionCount]}
+              onValueChange={(vals) => setQuestionCount(vals[0] ?? 1)}
+              min={1}
+              max={Math.max(maxAvailable, 1)}
+              step={1}
+              disabled={maxAvailable === 0}
+              aria-label="Number of questions"
+            />
+          </div>
+
+          <Button onClick={handleStart} disabled={starting || maxAvailable === 0} className="w-full">
             {starting ? "Starting..." : "Start Quiz"}
           </Button>
-
         </CardContent>
       </Card>
     </div>

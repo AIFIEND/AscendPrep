@@ -11,7 +11,7 @@ services:
       - SECRET_KEY=${SECRET_KEY}
       - SQLALCHEMY_DATABASE_URI=${SQLALCHEMY_DATABASE_URI}
       - ADMIN_PASSCODE=${ADMIN_PASSCODE}
-      - FRONTEND_ORIGIN=http://72.60.123.91
+      - FRONTEND_ORIGIN=${FRONTEND_ORIGIN}
     env_file:
       - .env
     volumes:
@@ -35,7 +35,8 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://72.60.123.91/api
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+      - API_URL=${API_URL}
     env_file:
       - .env
     depends_on:
@@ -45,7 +46,7 @@ services:
       - deca_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
       interval: 30s
       timeout: 10s
       retries: 3

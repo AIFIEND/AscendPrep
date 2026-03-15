@@ -3,7 +3,7 @@ import path from 'path';
 import Papa, { ParseResult } from 'papaparse'; // <-- CHANGED THIS LINE
 import { Question } from '../types';
 
-const csvFilePath = path.join(__dirname, '..', 'data', 'questions.csv');
+const csvFilePath = path.join(__dirname, '..', '..', 'data', 'questions.csv');
 const jsonFilePath = path.join(__dirname, '..', 'lib', 'questions.json');
 const fileContent = fs.readFileSync(csvFilePath, 'utf8');
 

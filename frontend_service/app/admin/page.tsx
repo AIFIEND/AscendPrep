@@ -16,10 +16,12 @@ export default function AdminGatePage() {
   const router = useRouter();
   const [passcode, setPasscode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
 
     try {
       await postJson('/api/admin/verify-passcode', { passcode }, { credentials: 'include' });
@@ -31,6 +33,7 @@ export default function AdminGatePage() {
         (error?.data && (error.data.message || error.data.error)) ||
         error?.message ||
         "Failed to verify passcode.";
+      setError(message);
       toast.error(message);
     } finally {
       setIsLoading(false);
@@ -53,9 +56,11 @@ export default function AdminGatePage() {
                 type="password"
                 value={passcode}
                 onChange={(e) => setPasscode(e.target.value)}
+                autoComplete="current-password"
                 required
               />
             </div>
+            {error && <p role="status" aria-live="polite" className="text-sm text-red-500">{error}</p>}
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? 'Verifying...' : 'Enter'}
             </Button>

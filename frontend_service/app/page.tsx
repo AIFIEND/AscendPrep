@@ -4,7 +4,7 @@
 
 import Link from "next/link";
 import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth-options";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -102,9 +102,9 @@ export default async function HomePage() {
 
       {/* FOOTER */}
       <footer className="py-8 border-t">
-        <div className="container mx-auto px-4 text-sm text-muted-foreground flex justify-between">
+        <div className="container mx-auto px-4 text-sm text-muted-foreground flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
           <span>© {new Date().getFullYear()} DECA Practice</span>
-          <div className="flex gap-4">
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
             <Link className="hover:underline" href="/start-quiz">Quick Start</Link>
             <Link className="hover:underline" href="/login">Login</Link>
             <Link className="hover:underline" href="/register">Register</Link>

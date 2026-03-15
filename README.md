@@ -23,7 +23,7 @@ An admin dashboard provides platform-wide analytics.
 │   ├── tests-taken/       # Completed test review
 │   ├── admin/             # Admin dashboard
 │   └── ... 
-├── backend/               # Flask backend
+├── backend_service/       # Flask backend
 │   ├── app.py             # Entry point, CORS, rate-limiting
 │   ├── models.py          # SQLAlchemy models
 │   └── routes/            # API endpoints
@@ -62,7 +62,7 @@ An admin dashboard provides platform-wide analytics.
 - pipenv or venv for Python  
 
 ### Backend
-cd backend
+cd backend_service
 python -m venv venv
 source venv/bin/activate   # (or venv\Scripts\activate on Windows)
 pip install -r requirements.txt
@@ -70,7 +70,7 @@ export FLASK_ENV=development
 flask run --port 5000
 
 ### Frontend
-cd app
+cd frontend_service
 npm install
 npm run dev
 # App runs on http://localhost:3000
@@ -97,7 +97,7 @@ npm run dev
 ## Security & stability
 
 - **CORS:** Allowed origins pulled from `FRONTEND_ORIGIN` env, supports multiple origins  
-- **Rate limiting:** Flask-Limiter enforces login/admin request throttling  
+- **Rate limiting:** In-memory throttling protects login/admin passcode attempts  
 - **Secrets in env:** No hardcoded IPs or URLs; all backend calls use env variables  
 
 ---
@@ -115,4 +115,3 @@ npm run start
 - Use HTTPS with a reverse proxy (e.g. nginx).  
 
 ---
-
