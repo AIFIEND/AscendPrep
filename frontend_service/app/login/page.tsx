@@ -1,5 +1,4 @@
 // app/login/page.tsx
-// UPDATED: The login handler now uses NextAuth's built-in redirect to send users to the dashboard.
 
 'use client';
 
@@ -12,22 +11,25 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 export default function LoginPage() {
-  const router = useRouter(); 
+  const router = useRouter();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // UPDATED: This function is now simplified to let NextAuth handle the redirect.
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsSubmitting(true);
 
     const result = await signIn('credentials', {
-      username: username,
-      password: password,
+      username,
+      password,
       redirect: false,
       callbackUrl: '/dashboard',
     });
+
+    setIsSubmitting(false);
 
     if (!result || result.error) {
       setError('Invalid username or password.');
@@ -48,26 +50,15 @@ export default function LoginPage() {
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-              />
+              <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
+              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
             </div>
-            {error && <p className="text-sm text-red-500">{error}</p>}
-            <Button type="submit" className="w-full">
-              Login
+            {error && <p role="status" aria-live="polite" className="text-sm text-red-500">{error}</p>}
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? 'Logging in...' : 'Login'}
             </Button>
           </form>
         </CardContent>

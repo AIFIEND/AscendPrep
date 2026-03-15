@@ -12,27 +12,13 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import { AuthRequiredState } from "@/components/auth-required-state";
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
 
   if (!session) {
-    // Not logged in -> nudge to login
-    return (
-      <div className="flex items-center justify-center min-h-[calc(100vh-8rem)]">
-        <Card className="w-full max-w-md text-center">
-          <CardHeader>
-            <CardTitle>Access Denied</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p>You need to be logged in to view your dashboard.</p>
-            <Button asChild>
-              <Link href="/login">Go to Login</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
+    return <AuthRequiredState description="You need to be logged in to view your dashboard." />;
   }
 
   const userName =

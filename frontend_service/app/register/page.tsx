@@ -83,7 +83,7 @@ export default function RegisterPage() {
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               {errorMsg && (
-                <Alert className="border-destructive/50">
+                <Alert className="border-destructive/50" role="status" aria-live="polite">
                   <AlertTitle>Couldn’t register</AlertTitle>
                   <AlertDescription>{errorMsg}</AlertDescription>
                 </Alert>
@@ -100,6 +100,7 @@ export default function RegisterPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Password</Label>
+                <p className="text-xs text-muted-foreground">Use at least 8 characters for a stronger password.</p>
                 <Input
                   id="password"
                   type="password"

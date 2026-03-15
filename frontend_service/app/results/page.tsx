@@ -64,7 +64,26 @@ export default function ResultsPage() {
   }
 
   if (error || !data) {
-    return <div className="container mx-auto px-4 py-8">{error || "No results found."}</div>;
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <Card className="max-w-xl mx-auto">
+          <CardHeader>
+            <CardTitle>Could not load results</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-muted-foreground">{error || "No results found."}</p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button asChild>
+                <Link href="/start-quiz">Start New Quiz</Link>
+              </Button>
+              <Button variant="outline" asChild>
+                <Link href="/dashboard">Back to Dashboard</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   const score = data.attempt.score ?? 0;

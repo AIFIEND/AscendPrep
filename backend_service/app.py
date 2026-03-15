@@ -345,10 +345,20 @@ def start_quiz(current_user):
     if cats: q = q.filter(Question.category.in_(cats))
     if diffs: q = q.filter(Question.difficulty.in_(diffs))
     selected = q.all()
-    
+
+    requested_count = data.get('numQuestions')
+    if requested_count is not None:
+        try:
+            requested_count = max(1, int(requested_count))
+        except (TypeError, ValueError):
+            return jsonify({'message': 'numQuestions must be a positive integer'}), 400
+
     # NEW: Shuffle the selected questions randomly.
     random.shuffle(selected)
-    
+
+    if requested_count is not None:
+        selected = selected[:requested_count]
+
     ids = [q.id for q in selected]
     new_attempt = QuizAttempt(
         test_name=data.get('testName', 'Practice Quiz'),

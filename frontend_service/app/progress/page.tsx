@@ -7,6 +7,7 @@ import { ProgressClient } from "./_components/progress-client";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { AuthRequiredState } from "@/components/auth-required-state";
 import { getJson } from '@/lib/api';
 
 
@@ -62,21 +63,7 @@ export default async function ProgressPage() {
   const session = await getServerSession(authOptions);
 
   if (!session) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Card className="w-full max-w-md text-center">
-          <CardHeader>
-            <CardTitle>Access Denied</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p>You need to be logged in to view your progress.</p>
-            <Button asChild>
-              <Link href="/login">Go to Login</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
+    return <AuthRequiredState description="You need to be logged in to view your progress." />;
   }
 
   const progressData = await getProgressData(session);
@@ -89,12 +76,20 @@ export default async function ProgressPage() {
 
       ) : (
         <Card>
-            <CardHeader>
-                <CardTitle>No Data Yet</CardTitle>
-            </CardHeader>
-            <CardContent>
-                <p>Could not load your progress data. You might need to complete a quiz first to see your stats.</p>
-            </CardContent>
+          <CardHeader>
+            <CardTitle>No Data Yet</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p>Could not load your progress data. Complete a quiz first, or retry.</p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button asChild>
+                <Link href="/start-quiz">Start Quiz</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/progress">Retry</Link>
+              </Button>
+            </div>
+          </CardContent>
         </Card>
       )}
     </div>
