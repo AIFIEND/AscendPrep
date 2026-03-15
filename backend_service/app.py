@@ -384,7 +384,8 @@ def submit_quiz(current_user):
     if attempt_id is None:
         return jsonify({'message': 'attemptId required'}), 400
 
-    attempt = QuizAttempt.query.filter_by(id=attempt_id, user_id=current_user.id).first()
+    # FIX: Cast attempt_id to int to match the database column type
+    attempt = QuizAttempt.query.filter_by(id=int(attempt_id), user_id=current_user.id).first()
     if not attempt:
         return jsonify({'message': 'Attempt not found'}), 404
 
