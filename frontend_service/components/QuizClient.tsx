@@ -89,6 +89,13 @@ export default function QuizClient({ attemptId, initialQuestions, initialAnswers
       );
 
       router.push("/results?attemptId=" + attemptId);
+        await postJson("/api/quiz/submit", {
+            attemptId
+        }, {
+            headers: { "Authorization": `Bearer ${token}` } // <--- ATTACH TOKEN
+        });
+        
+        router.push("/results?attemptId=" + attemptId);
     } catch (err) {
       console.error("Submit failed", err);
       setSubmitting(false);

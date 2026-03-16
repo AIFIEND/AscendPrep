@@ -19,7 +19,6 @@ type AttemptResultResponse = {
   };
   questions: Question[];
 };
-
 type ResumeResponse = {
   questions: Question[];
   answersSoFar: Record<string, string>;
@@ -71,8 +70,8 @@ export default function ResultsPage() {
         setData(resp);
         setError(null);
       } catch (err) {
-        const status = err instanceof ApiError ? err.status : undefined;
-        if (status !== 401 && status !== 403) {
+        const statusCode = err instanceof ApiError ? err.status : undefined;
+        if (statusCode !== 401 && statusCode !== 403) {
           try {
             const [resume, attempts] = await Promise.all([
               getJson<ResumeResponse>(`/api/quiz/resume/${attemptId}`, {
@@ -121,8 +120,6 @@ export default function ResultsPage() {
         .filter(Number.isFinite)
     );
 
-    // Compatibility: if backend total/questions are larger than what was actually attempted,
-    // only review answered questions so users are not penalized for unseen items.
     if (answeredIds.size > 0 && answeredIds.size < data.questions.length) {
       return data.questions.filter((q) => answeredIds.has(q.id));
     }
@@ -148,7 +145,6 @@ export default function ResultsPage() {
   if (loading) {
     return <div className="container mx-auto px-4 py-8">Loading results...</div>;
   }
-
   if (error || !data) {
     return (
       <div className="container mx-auto px-4 py-8">

@@ -113,6 +113,14 @@ function PracticePageContent() {
     return <AuthRequiredState description="You need to be logged in to practice." />;
   }
 
+  if (status === "loading") {
+    return <p className="text-center mt-8">Loading...</p>;
+  }
+
+  if (status === "unauthenticated") {
+    return <AuthRequiredState description="You need to be logged in to practice." />;
+  }
+
   const currentQuestion = questions[currentQuestionIndex];
   const isCorrect =
     currentQuestion && selectedAnswers[currentQuestion.id] === currentQuestion.correctAnswer;

@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 import random # NEW: Import the random module for shuffling
 from time import time
 from collections import defaultdict
+from sqlalchemy.orm.attributes import flag_modified
 
 
 load_dotenv() 
@@ -421,6 +422,10 @@ def submit_quiz(current_user):
 
     attempt.score = calculated_score
     attempt.is_complete = True
+    
+    # FIX: Explicitly tell SQLAlchemy that the JSON dictionary changed
+    flag_modified(attempt, "results_by_category") 
+    
     db.session.commit()
 
     return jsonify({'message': 'Quiz submitted', 'attempt': attempt.to_dict()}), 200
