@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Flag, X } from "lucide-react";
 import { toast } from "sonner";
-import { postJson, getJson } from "@/lib/api";
+import { postJson, getJson, ApiError } from "@/lib/api";
 import { Progress } from "@/components/ui/progress";
 import { AuthRequiredState } from "@/components/auth-required-state";
 
@@ -34,7 +34,13 @@ function PracticePageContent() {
   const attemptIdParam = searchParams.get("attemptId");
   const categoriesParam = searchParams.get("categories");
   const difficultiesParam = searchParams.get("difficulties");
+  const numQuestionsParam = searchParams.get("numQuestions");
   const sessionToken = session?.user?.backendToken;
+  const parsedAttemptId = attemptIdParam ? Number.parseInt(attemptIdParam, 10) : null;
+  const resolvedAttemptId = attemptId ?? (Number.isFinite(parsedAttemptId) ? parsedAttemptId : null);
+  const requestedQuestionCount = numQuestionsParam
+    ? Math.max(1, Number.parseInt(numQuestionsParam, 10) || 0)
+    : null;
 
   useEffect(() => {
     if (!session) return;
@@ -51,13 +57,14 @@ function PracticePageContent() {
 
           const savedAnswers = data.answersSoFar || {};
           setAttemptId(parseInt(attemptIdParam, 10));
-          setQuestions(data.questions);
+          const trimmedQuestions = requestedQuestionCount ? data.questions.slice(0, requestedQuestionCount) : data.questions;
+          setQuestions(trimmedQuestions);
           setSelectedAnswers(savedAnswers);
-          const firstUnansweredIndex = data.questions.findIndex(
+          const firstUnansweredIndex = trimmedQuestions.findIndex(
             (q: Question) => !savedAnswers.hasOwnProperty(q.id)
           );
           setCurrentQuestionIndex(
-            firstUnansweredIndex === -1 ? data.questions.length - 1 : firstUnansweredIndex
+            firstUnansweredIndex === -1 ? trimmedQuestions.length - 1 : firstUnansweredIndex
           );
         } else {
           if (quizCreationInitiated.current) return;
@@ -75,6 +82,7 @@ function PracticePageContent() {
               categories: cats,
               difficulties: diffs,
               testName,
+              numQuestions: requestedQuestionCount ?? undefined,
             },
             {
               headers: {
@@ -83,7 +91,8 @@ function PracticePageContent() {
             }
           );
           setAttemptId(data.attemptId);
-          setQuestions(data.questions);
+          const trimmedQuestions = requestedQuestionCount ? data.questions.slice(0, requestedQuestionCount) : data.questions;
+          setQuestions(trimmedQuestions);
         }
       } catch (error) {
         console.error("Failed to load quiz:", error);
@@ -94,7 +103,15 @@ function PracticePageContent() {
     };
 
     loadQuiz();
-  }, [attemptIdParam, categoriesParam, difficultiesParam, sessionToken, session]);
+  }, [attemptIdParam, categoriesParam, difficultiesParam, numQuestionsParam, sessionToken, session]);
+
+  if (status === "loading") {
+    return <p className="text-center mt-8">Loading...</p>;
+  }
+
+  if (status === "unauthenticated") {
+    return <AuthRequiredState description="You need to be logged in to practice." />;
+  }
 
   if (status === "loading") {
     return <p className="text-center mt-8">Loading...</p>;
@@ -113,16 +130,20 @@ function PracticePageContent() {
 
     try {
       setSelectedAnswers((p) => ({ ...p, [questionId]: answerId }));
+      if (resolvedAttemptId === null) {
+        throw new Error("Could not determine quiz attempt. Please restart the quiz.");
+      }
+
       await postJson(
         "/api/quiz/answer",
         {
-          attemptId,
+          attemptId: resolvedAttemptId,
           questionId,
           answer: answerId,
         },
         {
           headers: {
-            Authorization: session?.user?.backendToken ? `Bearer ${session.user.backendToken}` : "",
+            Authorization: `Bearer ${sessionToken}`,
           },
         }
       );
@@ -168,26 +189,31 @@ function PracticePageContent() {
     setScore(finalScore);
     setShowScore(true);
 
-    if (!session?.user?.backendToken || attemptId === null) {
-      toast.error("You must be logged in to save your score.");
+    if (!sessionToken || resolvedAttemptId === null) {
+      toast.error("Could not save score because your quiz session is missing. Please restart the quiz.");
       return;
     }
 
     try {
       await postJson(
         "/api/quiz/submit",
-        { attemptId },
+        { attemptId: resolvedAttemptId, score: Math.round(finalScore) },
         {
           headers: {
-            Authorization: session?.user?.backendToken ? `Bearer ${session.user.backendToken}` : "",
+            Authorization: `Bearer ${sessionToken}`,
           },
         }
       );
       toast.success("Quiz score saved successfully!");
-      router.push(`/results?attemptId=${attemptId}`);
+      router.push(`/results?attemptId=${resolvedAttemptId}`);
     } catch (error) {
       console.error("Failed to save quiz score:", error);
-      toast.error("Could not save your score.");
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : "Could not save your score. Please try again.";
+      toast.error(message);
+      setShowScore(false);
     }
   };
 

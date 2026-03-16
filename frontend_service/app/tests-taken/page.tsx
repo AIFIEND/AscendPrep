@@ -13,6 +13,7 @@ type ApiTest = {
   timestamp: string;
   total_questions: number;
   is_complete: boolean;
+  results_by_category?: Record<string, { correct: number; total: number }> | null;
 };
 
 // This is the type used by your frontend components
@@ -38,14 +39,30 @@ async function getTestsTaken(session: any): Promise<Test[]> {
       cache: "no-store",
     });
 
-    return (data || []).map((t) => ({
-      _id: String(t.id),
-      testName: t.test_name,
-      score: t.score,
-      totalQuestions: t.total_questions,
-      completedAt: t.timestamp,
-      is_complete: t.is_complete,
-    }));
+    return (data || []).map((t) => {
+      let displayScore = t.score;
+      let displayTotalQuestions = t.total_questions;
+
+      if (t.is_complete && t.results_by_category) {
+        const categoryRows = Object.values(t.results_by_category);
+        const answeredTotal = categoryRows.reduce((sum, row) => sum + (row?.total || 0), 0);
+        const correctTotal = categoryRows.reduce((sum, row) => sum + (row?.correct || 0), 0);
+
+        if (answeredTotal > 0) {
+          displayTotalQuestions = answeredTotal;
+          displayScore = Math.round((correctTotal / answeredTotal) * 100);
+        }
+      }
+
+      return {
+        _id: String(t.id),
+        testName: t.test_name,
+        score: displayScore,
+        totalQuestions: displayTotalQuestions,
+        completedAt: t.timestamp,
+        is_complete: t.is_complete,
+      };
+    });
   } catch (error) {
     console.error("Could not fetch test attempts:", error);
     return [];

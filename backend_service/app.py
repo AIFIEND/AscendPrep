@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 import random # NEW: Import the random module for shuffling
 from time import time
 from collections import defaultdict
+from sqlalchemy.orm.attributes import flag_modified
 
 
 load_dotenv() 
@@ -384,8 +385,12 @@ def submit_quiz(current_user):
     if attempt_id is None:
         return jsonify({'message': 'attemptId required'}), 400
 
-    # FIX: Cast attempt_id to int to match the database column type
-    attempt = QuizAttempt.query.filter_by(id=int(attempt_id), user_id=current_user.id).first()
+    try:
+        attempt_id = int(attempt_id)
+    except (TypeError, ValueError):
+        return jsonify({'message': 'attemptId must be a valid integer'}), 400
+
+    attempt = QuizAttempt.query.filter_by(id=attempt_id, user_id=current_user.id).first()
     if not attempt:
         return jsonify({'message': 'Attempt not found'}), 404
 
@@ -414,8 +419,6 @@ def submit_quiz(current_user):
         calculated_score = int((total_correct / attempt.total_questions) * 100)
     else:
         calculated_score = 0
-
-from sqlalchemy.orm.attributes import flag_modified # <--- ADD THIS IMPORT
 
     attempt.score = calculated_score
     attempt.is_complete = True

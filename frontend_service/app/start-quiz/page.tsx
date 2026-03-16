@@ -109,7 +109,8 @@ export default function StartQuizPage() {
       );
 
       toast.success("Quiz started. Good luck!");
-      router.push(`/practice?attemptId=${res.attemptId}`);
+      toast.success("Quiz started. Good luck!");
+      router.push(`/practice?attemptId=${res.attemptId}&numQuestions=${questionCount}`);
     } catch (err: any) {
       const message = err?.message || "Failed to start quiz.";
       setErrorMsg(message);

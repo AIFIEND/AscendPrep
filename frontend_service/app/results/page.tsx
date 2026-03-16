@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getJson } from "@/lib/api";
+import { ApiError, getJson } from "@/lib/api";
 import { CheckCircle, Home, RotateCcw, XCircle } from "lucide-react";
 import { Question } from "@/types";
 
@@ -19,10 +19,21 @@ type AttemptResultResponse = {
   };
   questions: Question[];
 };
+type ResumeResponse = {
+  questions: Question[];
+  answersSoFar: Record<string, string>;
+};
+
+type AttemptSummary = {
+  id: number;
+  score: number | null;
+  total_questions: number;
+  answers: Record<string, string>;
+};
 
 export default function ResultsPage() {
   const searchParams = useSearchParams();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [data, setData] = useState<AttemptResultResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,33 +47,104 @@ export default function ResultsPage() {
       return;
     }
 
+    if (status === "loading") {
+      setLoading(true);
+      return;
+    }
+
     if (!session?.user?.backendToken) {
       setError("You must be logged in to view quiz results.");
       setLoading(false);
       return;
     }
 
-    getJson<AttemptResultResponse>(`/api/quiz/attempt/${attemptId}/results`, {
-      headers: { Authorization: `Bearer ${session.user.backendToken}` },
-      cache: "no-store",
-    })
-      .then((resp) => setData(resp))
-      .catch(() => setError("Could not load quiz results."))
-      .finally(() => setLoading(false));
-  }, [attemptId, session?.user?.backendToken]);
+    setError(null);
+    setLoading(true);
+
+    (async () => {
+      try {
+        const resp = await getJson<AttemptResultResponse>(`/api/quiz/attempt/${attemptId}/results`, {
+          headers: { Authorization: `Bearer ${session.user.backendToken}` },
+          cache: "no-store",
+        });
+        setData(resp);
+        setError(null);
+      } catch (err) {
+        const statusCode = err instanceof ApiError ? err.status : undefined;
+        if (statusCode !== 401 && statusCode !== 403) {
+          try {
+            const [resume, attempts] = await Promise.all([
+              getJson<ResumeResponse>(`/api/quiz/resume/${attemptId}`, {
+                headers: { Authorization: `Bearer ${session.user.backendToken}` },
+                cache: "no-store",
+              }),
+              getJson<AttemptSummary[]>("/api/user/attempts", {
+                headers: { Authorization: `Bearer ${session.user.backendToken}` },
+                cache: "no-store",
+              }),
+            ]);
+
+            const summary = attempts.find((a) => String(a.id) === String(attemptId));
+            if (!summary) {
+              setError("Could not load quiz results.");
+            } else {
+              setData({
+                attempt: {
+                  id: summary.id,
+                  score: summary.score,
+                  total_questions: summary.total_questions,
+                  answers: resume.answersSoFar || summary.answers || {},
+                },
+                questions: resume.questions || [],
+              });
+              setError(null);
+            }
+          } catch {
+            setError("Could not load quiz results.");
+          }
+        } else {
+          setError("Could not load quiz results.");
+        }
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [attemptId, session?.user?.backendToken, status]);
+
+  const reviewedQuestions = useMemo(() => {
+    if (!data) return [] as Question[];
+
+    const answeredIds = new Set(
+      Object.keys(data.attempt.answers || {})
+        .map((id) => Number.parseInt(id, 10))
+        .filter(Number.isFinite)
+    );
+
+    if (answeredIds.size > 0 && answeredIds.size < data.questions.length) {
+      return data.questions.filter((q) => answeredIds.has(q.id));
+    }
+
+    return data.questions;
+  }, [data]);
 
   const correctAnswers = useMemo(() => {
     if (!data) return 0;
-    return data.questions.reduce((acc, question) => {
+    return reviewedQuestions.reduce((acc, question) => {
       const userAnswer = data.attempt.answers[String(question.id)];
       return acc + (userAnswer === question.correctAnswer ? 1 : 0);
     }, 0);
-  }, [data]);
+  }, [data, reviewedQuestions]);
+
+  const effectiveTotalQuestions = reviewedQuestions.length;
+
+  const computedScore = useMemo(() => {
+    if (!data || effectiveTotalQuestions === 0) return 0;
+    return Math.round((correctAnswers / effectiveTotalQuestions) * 100);
+  }, [data, correctAnswers, effectiveTotalQuestions]);
 
   if (loading) {
     return <div className="container mx-auto px-4 py-8">Loading results...</div>;
   }
-
   if (error || !data) {
     return (
       <div className="container mx-auto px-4 py-8">
@@ -86,7 +168,7 @@ export default function ResultsPage() {
     );
   }
 
-  const score = data.attempt.score ?? 0;
+  const score = effectiveTotalQuestions > 0 ? computedScore : (data.attempt.score ?? 0);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -109,7 +191,7 @@ export default function ResultsPage() {
                 </div>
                 <div className="flex flex-col items-center p-4 bg-red-50 rounded-lg dark:bg-red-900/20">
                   <XCircle className="h-8 w-8 text-red-500 mb-2" />
-                  <div className="text-xl font-bold">{data.attempt.total_questions - correctAnswers}</div>
+                  <div className="text-xl font-bold">{Math.max(effectiveTotalQuestions - correctAnswers, 0)}</div>
                   <div className="text-sm text-gray-500">Incorrect</div>
                 </div>
               </div>
@@ -135,7 +217,7 @@ export default function ResultsPage() {
         <div className="space-y-6">
           <h2 className="text-2xl font-bold">All Questions</h2>
 
-          {data.questions.map((question, index) => {
+          {reviewedQuestions.map((question, index) => {
             const userAnswer = data.attempt.answers[String(question.id)];
             const isCorrect = userAnswer === question.correctAnswer;
 
