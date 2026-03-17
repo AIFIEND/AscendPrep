@@ -25,6 +25,8 @@ export const authOptions: NextAuthOptions = {
             name: string;
             token: string;
             is_admin: boolean;
+            is_super_admin: boolean;
+            institution_id: number;
           }>("/api/auth/credentials", { username, password });
 
           return {
@@ -32,6 +34,8 @@ export const authOptions: NextAuthOptions = {
             name: data.name,
             backendToken: data.token,
             is_admin: data.is_admin,
+            is_super_admin: data.is_super_admin,
+            institution_id: data.institution_id,
           };
         } catch {
           return null;
@@ -46,6 +50,8 @@ export const authOptions: NextAuthOptions = {
         token.name = user.name;
         token.backendToken = (user as { backendToken?: string }).backendToken;
         token.is_admin = (user as { is_admin?: boolean }).is_admin;
+        token.is_super_admin = (user as { is_super_admin?: boolean }).is_super_admin;
+        token.institution_id = (user as { institution_id?: number }).institution_id;
       }
       return token;
     },
@@ -55,6 +61,8 @@ export const authOptions: NextAuthOptions = {
         name: token.name ?? session.user?.name,
         backendToken: token.backendToken,
         is_admin: !!token.is_admin,
+        is_super_admin: !!token.is_super_admin,
+        institution_id: typeof token.institution_id === "number" ? token.institution_id : undefined,
       };
       return session;
     },

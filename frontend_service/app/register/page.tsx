@@ -23,6 +23,7 @@ export default function RegisterPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [institutionCode, setInstitutionCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -40,7 +41,7 @@ export default function RegisterPage() {
     setErrorMsg(null);
     setIsSubmitting(true);
     try {
-      await postJson("/api/register", { username, password });
+      await postJson("/api/register", { username, password, institutionCode });
       setSuccess(true);
     } catch (err: any) {
       const msg =
@@ -95,6 +96,15 @@ export default function RegisterPage() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   autoComplete="username"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="institutionCode">Institution Code</Label>
+                <Input
+                  id="institutionCode"
+                  value={institutionCode}
+                  onChange={(e) => setInstitutionCode(e.target.value)}
                   required
                 />
               </div>

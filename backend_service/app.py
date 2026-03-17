@@ -5,12 +5,14 @@ import os
 from datetime import datetime, timedelta
 import jwt
 from functools import wraps
-from flask import Flask, jsonify, request, make_response
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
 import random # NEW: Import the random module for shuffling
+import secrets
+import string
 from time import time
 from collections import defaultdict
 from sqlalchemy.orm.attributes import flag_modified
@@ -34,9 +36,6 @@ if database_url.startswith("postgres") and "sslmode=" not in database_url:
         "connect_args": {"sslmode": "require"}
     }
 
-# Also require this from env; do NOT print it
-ADMIN_PASSCODE = os.environ["ADMIN_PASSCODE"]
-
 # Support one or many origins in FRONTEND_ORIGIN, e.g.
 # FRONTEND_ORIGIN=http://localhost:3000,http://192.168.0.65:3000
 _frontend_origin_raw = os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
@@ -53,21 +52,6 @@ CORS(
 
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
-
-# --- Simple in-memory rate limiter for admin passcode ---
-# Allow 5 attempts per 5 minutes per IP (dev-safe; swap for Redis in prod).
-ADMIN_RATE_WINDOW = 5 * 60  # seconds
-ADMIN_RATE_MAX = 5
-_admin_attempts = defaultdict(list)  # ip -> [timestamps]
-
-def _admin_rate_limited(ip: str) -> bool:
-    now = time()
-    # Drop stale attempts outside the window
-    _admin_attempts[ip] = [t for t in _admin_attempts[ip] if now - t < ADMIN_RATE_WINDOW]
-    if len(_admin_attempts[ip]) >= ADMIN_RATE_MAX:
-        return True
-    _admin_attempts[ip].append(now)
-    return False
 
 # --- Simple in-memory rate limiter for LOGIN ---
 # Allow 10 attempts per 5 minutes per IP (dev-safe; use Redis in prod).
@@ -90,12 +74,21 @@ def is_production() -> bool:
 
 # --- Database Model Definitions ---
 
+class Institution(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    registration_code = db.Column(db.String(64), unique=True, nullable=False)
+    users = db.relationship('User', backref='institution', lazy=True)
+
+
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
     attempts = db.relationship('QuizAttempt', backref='user', lazy=True)
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
+    is_super_admin = db.Column(db.Boolean, default=False, nullable=False)
+    institution_id = db.Column(db.Integer, db.ForeignKey('institution.id'), nullable=False)
 
     def set_password(self, password):
         self.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
@@ -212,7 +205,6 @@ def admin_required(f):
                 leeway=30,
             )
             user_id = payload.get("user_id")
-            is_admin_flag = payload.get("is_admin", False)
             current_user = User.query.get(user_id)
             if not current_user:
                 return jsonify({"message": "User not found"}), 401
@@ -221,31 +213,54 @@ def admin_required(f):
         except jwt.InvalidTokenError:
             return jsonify({"message": "Token invalid"}), 401
 
-        # If the user has admin role, allow immediately
-        if getattr(current_user, "is_admin", False) or is_admin_flag:
-            return f(current_user, *args, **kwargs)
-
-        # Otherwise, check the short-lived admin cookie from the passcode gate
-        admin_access_token = request.cookies.get("admin_access_token")
-        if not admin_access_token:
+        if not getattr(current_user, "is_admin", False):
             return jsonify({"message": "Admin privileges required"}), 403
 
+        return f(current_user, *args, **kwargs)
+
+    return wrapper
+
+def super_admin_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        auth = request.headers.get("Authorization", "")
+        token = None
+        if auth.startswith("Bearer "):
+            token = auth.split(" ", 1)[1].strip()
+        if not token:
+            return jsonify({"message": "Authorization token is missing"}), 401
+
         try:
-            jwt.decode(
-                admin_access_token,
+            payload = jwt.decode(
+                token,
                 app.config["SECRET_KEY"],
                 algorithms=["HS256"],
                 options={"require": ["exp"]},
                 leeway=30,
             )
+            user_id = payload.get("user_id")
+            current_user = User.query.get(user_id)
+            if not current_user:
+                return jsonify({"message": "User not found"}), 401
         except jwt.ExpiredSignatureError:
-            return jsonify({"message": "Admin access expired"}), 403
+            return jsonify({"message": "Token expired"}), 401
         except jwt.InvalidTokenError:
-            return jsonify({"message": "Admin access token invalid"}), 403
+            return jsonify({"message": "Token invalid"}), 401
+
+        if not getattr(current_user, "is_super_admin", False):
+            return jsonify({"message": "Super admin privileges required"}), 403
 
         return f(current_user, *args, **kwargs)
 
     return wrapper
+
+
+def generate_registration_code(length=8):
+    alphabet = string.ascii_uppercase + string.digits
+    while True:
+        code = ''.join(secrets.choice(alphabet) for _ in range(length))
+        if not Institution.query.filter_by(registration_code=code).first():
+            return code
 
 # --- API Endpoints ---
 
@@ -265,10 +280,11 @@ def register_user():
     data = request.get_json() or {}
     username = (data.get('username') or '').strip()
     password = data.get('password') or ''
+    institution_code = (data.get('institutionCode') or '').strip()
 
     # Hardened validation (INSIDE the function)
-    if not username or not password:
-        return jsonify({'message': 'Username and password required'}), 400
+    if not username or not password or not institution_code:
+        return jsonify({'message': 'Username, password, and institution code are required'}), 400
     if len(username) < 3:
         return jsonify({'message': 'Username must be at least 3 characters'}), 400
     if len(password) < 8:
@@ -276,11 +292,15 @@ def register_user():
     if User.query.filter_by(username=username).first():
         return jsonify({'message': 'User already exists'}), 400
 
-    user = User(username=username)
+    institution = Institution.query.filter_by(registration_code=institution_code).first()
+    if not institution:
+        return jsonify({'message': 'Invalid institution code'}), 400
+
+    user = User(username=username, institution_id=institution.id)
     user.set_password(password)
 
-    # First user becomes admin
-    if User.query.count() == 0:
+    # First user in an institution becomes that institution's admin
+    if User.query.filter_by(institution_id=institution.id).count() == 0:
         user.is_admin = True
 
     db.session.add(user)
@@ -290,6 +310,7 @@ def register_user():
         {
             'user_id': user.id,
             'is_admin': user.is_admin,
+            'is_super_admin': user.is_super_admin,
             'exp': datetime.utcnow() + timedelta(hours=24)
         },
         app.config['SECRET_KEY'],
@@ -300,7 +321,9 @@ def register_user():
         'id': user.id,
         'name': user.username,
         'token': token,
-        'is_admin': user.is_admin
+        'is_admin': user.is_admin,
+        'is_super_admin': user.is_super_admin,
+        'institution_id': user.institution_id
     }), 201
 
 
@@ -324,6 +347,7 @@ def verify_and_get_token():
     token = jwt.encode({
         'user_id': user.id,
         'is_admin': user.is_admin,
+        'is_super_admin': user.is_super_admin,
         'exp': datetime.utcnow() + timedelta(hours=24)
     }, app.config['SECRET_KEY'], algorithm="HS256")
     
@@ -331,7 +355,9 @@ def verify_and_get_token():
         'id': user.id,
         'name': user.username,
         'token': token,
-        'is_admin': user.is_admin
+        'is_admin': user.is_admin,
+        'is_super_admin': user.is_super_admin,
+        'institution_id': user.institution_id
     }), 200
 
 
@@ -479,53 +505,40 @@ def get_user_progress(current_user):
 
 # --- ADMIN ENDPOINTS ---
 
-@app.route('/api/admin/verify-passcode', methods=['POST'])
-def verify_admin_passcode():
-    # Rate limit by client IP
-    ip = request.headers.get('X-Forwarded-For', request.remote_addr or 'unknown').split(',')[0].strip()
-    if _admin_rate_limited(ip):
-        return jsonify({'message': 'Too many attempts, please try again later'}), 429
-
-    data = request.get_json() or {}
-    passcode = data.get('passcode')
-
-    if not passcode or passcode != ADMIN_PASSCODE:
-        return jsonify({'message': 'Invalid passcode'}), 401
-
-    admin_access_token = jwt.encode({
-        'admin_access': True,
-        'exp': datetime.utcnow() + timedelta(hours=1)
-    }, app.config['SECRET_KEY'], algorithm="HS256")
-
-    resp = make_response(jsonify({'message': 'Passcode verified'}))
-    resp.set_cookie(
-        'admin_access_token',
-        value=admin_access_token,
-        httponly=True,
-        secure=is_production(),  # True in prod (HTTPS), False in dev
-        samesite='None' if is_production() else 'Lax',
-        max_age=3600,
-        path="/",
-    )
-    return resp
-
 @app.route('/api/admin/users', methods=['GET'])
 @admin_required
 def get_all_users(current_user):
-    users = User.query.all()
+    users = User.query.filter_by(institution_id=current_user.institution_id).all()
     return jsonify([{
         'id': u.id,
         'username': u.username,
-        'is_admin': u.is_admin
+        'is_admin': u.is_admin,
+        'institution_id': u.institution_id
     } for u in users]), 200
 
 @app.route('/api/admin/analytics', methods=['GET'])
 @admin_required
 def get_admin_analytics(current_user):
-    all_attempts = QuizAttempt.query.filter_by(is_complete=True).all()
+    all_attempts = (
+        QuizAttempt.query
+        .join(User, User.id == QuizAttempt.user_id)
+        .filter(
+            QuizAttempt.is_complete == True,
+            User.institution_id == current_user.institution_id
+        )
+        .all()
+    )
     
     total_quizzes = len(all_attempts)
-    avg_score = db.session.query(db.func.avg(QuizAttempt.score)).filter(QuizAttempt.is_complete==True).scalar()
+    avg_score = (
+        db.session.query(db.func.avg(QuizAttempt.score))
+        .join(User, User.id == QuizAttempt.user_id)
+        .filter(
+            QuizAttempt.is_complete == True,
+            User.institution_id == current_user.institution_id
+        )
+        .scalar()
+    )
 
     performance_by_category = {}
     for attempt in all_attempts:
@@ -536,7 +549,7 @@ def get_admin_analytics(current_user):
                 performance_by_category[category]['correct'] += result['correct']
                 performance_by_category[category]['total'] += result['total']
     
-    users = User.query.all()
+    users = User.query.filter_by(institution_id=current_user.institution_id).all()
     user_analytics = []
     for user in users:
         user_attempts = [a for a in all_attempts if a.user_id == user.id]
@@ -555,6 +568,42 @@ def get_admin_analytics(current_user):
         'performance_by_category': performance_by_category,
         'user_analytics': user_analytics
     }), 200
+
+
+@app.route('/api/superadmin/institutions', methods=['GET'])
+@super_admin_required
+def list_institutions(current_user):
+    institutions = Institution.query.order_by(Institution.name.asc()).all()
+    return jsonify([
+        {
+            'id': inst.id,
+            'name': inst.name,
+            'registration_code': inst.registration_code,
+            'user_count': len(inst.users),
+        }
+        for inst in institutions
+    ]), 200
+
+
+@app.route('/api/superadmin/institutions', methods=['POST'])
+@super_admin_required
+def create_institution(current_user):
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+
+    if not name:
+        return jsonify({'message': 'School name is required'}), 400
+
+    registration_code = generate_registration_code()
+    institution = Institution(name=name, registration_code=registration_code)
+    db.session.add(institution)
+    db.session.commit()
+
+    return jsonify({
+        'id': institution.id,
+        'name': institution.name,
+        'registration_code': institution.registration_code
+    }), 201
 
 # --- Other endpoints ---
 @app.route('/api/quiz/answer', methods=['POST'])
