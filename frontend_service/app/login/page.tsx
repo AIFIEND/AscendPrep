@@ -1,8 +1,7 @@
-// app/login/page.tsx
-
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
@@ -26,7 +25,6 @@ export default function LoginPage() {
       username,
       password,
       redirect: false,
-      callbackUrl: '/dashboard',
     });
 
     setIsSubmitting(false);
@@ -36,7 +34,7 @@ export default function LoginPage() {
       return;
     }
 
-    router.push(result.url || '/dashboard');
+    router.push('/dashboard');
   };
 
   return (
@@ -60,6 +58,12 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? 'Logging in...' : 'Login'}
             </Button>
+            <p className="text-xs text-muted-foreground text-center">
+              Need an account? <Link href="/register" className="underline">Register with your institution code</Link>.
+            </p>
+            <p className="text-xs text-muted-foreground text-center">
+              First-time platform setup? <Link href="/setup/superadmin" className="underline">Create initial superadmin</Link>.
+            </p>
           </form>
         </CardContent>
       </Card>

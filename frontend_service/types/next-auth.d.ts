@@ -1,40 +1,29 @@
-// types/next-auth.d.ts
-// UPDATED: Added is_admin flag to Session and JWT types for role checking.
-
 import { type DefaultSession } from "next-auth";
-import { JWT } from "next-auth/jwt";
 
 declare module "next-auth" {
-  /**
-   * Returned by `useSession`, `getSession` and received as a prop on the `SessionProvider` React Context
-   */
   interface Session {
     user: {
       id: string;
-      // This is the token from our Python backend
       backendToken?: string;
-      // NEW: Add admin flag to the session user
       is_admin?: boolean;
+      is_superadmin?: boolean;
+      is_super_admin?: boolean;
+      role?: "student" | "institution_admin" | "superadmin";
+      institution_id?: number | null;
+      institution_name?: string | null;
     } & DefaultSession["user"];
   }
 }
 
 declare module "next-auth/jwt" {
-  /** Returned by the `jwt` callback and `getToken`, when using JWT sessions */
   interface JWT {
-    // This is the token from our Python backend
     backendToken?: string;
-    // NEW: Add admin flag to the JWT token
     is_admin?: boolean;
+    is_superadmin?: boolean;
+    is_super_admin?: boolean;
     id?: string;
-    token?: string;
+    role?: "student" | "institution_admin" | "superadmin";
+    institution_id?: number | null;
+    institution_name?: string | null;
   }
-}
-
-// NEW: This is needed because the user object from the authorize callback is not strongly typed
-interface BackendUser {
-    id: string;
-    name: string;
-    token: string;
-    is_admin: boolean;
 }
