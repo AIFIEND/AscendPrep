@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth-options";
 import { TestsTakenClient } from "./_components/tests-taken-client";
 import { AuthRequiredState } from "@/components/auth-required-state";
-import { getJson } from '@/lib/api';
+import { ApiError, getJson } from '@/lib/api';
 
 
 // This is the type for data coming directly from your Flask API
@@ -26,11 +26,15 @@ type Test = {
   is_complete: boolean;
 };
 
+type TestsTakenResult = {
+  tests: Test[];
+  authExpired: boolean;
+};
+
 // This function now runs on the server and includes the session check
-async function getTestsTaken(session: any): Promise<Test[]> {
+async function getTestsTaken(session: any): Promise<TestsTakenResult> {
   if (!session?.user?.backendToken) {
-    console.log("No session or backend token found.");
-    return [];
+    return { tests: [], authExpired: true };
   }
 
   try {
@@ -39,7 +43,7 @@ async function getTestsTaken(session: any): Promise<Test[]> {
       cache: "no-store",
     });
 
-    return (data || []).map((t) => {
+    const tests = (data || []).map((t) => {
       let displayScore = t.score;
       let displayTotalQuestions = t.total_questions;
 
@@ -63,9 +67,15 @@ async function getTestsTaken(session: any): Promise<Test[]> {
         is_complete: t.is_complete,
       };
     });
+
+    return { tests, authExpired: false };
   } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      return { tests: [], authExpired: true };
+    }
+
     console.error("Could not fetch test attempts:", error);
-    return [];
+    return { tests: [], authExpired: false };
   }
 }
 
@@ -80,7 +90,12 @@ export default async function TestsTakenPage() {
   }
 
   // If the user is logged in, fetch their tests and render the client component
-  const tests = await getTestsTaken(session);
+  const { tests, authExpired } = await getTestsTaken(session);
+
+  if (authExpired) {
+    return <AuthRequiredState description="Your session expired. Please log in again to view your test history." />;
+  }
+
   return (
     <div className="container mx-auto p-4">
       <h1 className="text-3xl font-bold mb-6">My Tests</h1>
