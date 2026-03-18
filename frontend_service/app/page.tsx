@@ -55,7 +55,7 @@ export default async function HomePage() {
             )}
 
             <p className="text-xs text-muted-foreground">
-              No credit card required. Free to get started.
+              Students need an institution registration code from their counselor to create an account.
             </p>
           </div>
 
@@ -78,7 +78,7 @@ export default async function HomePage() {
                 Visualize improvement over time and spot weak areas.
               </FeatureItem>
               <FeatureItem title="Admin Insights">
-                Coaches/teachers can view platform-wide analytics.
+                Counselors and admins can monitor only their institution performance.
               </FeatureItem>
             </CardContent>
           </Card>
@@ -89,7 +89,7 @@ export default async function HomePage() {
       <section className="py-12 border-t">
         <div className="container mx-auto px-4 grid gap-6 md:grid-cols-3">
           <StepCard index={1} title="Register">
-            Create an account to save attempts and track improvement.
+            Create an account with your institution code to join the correct school.
           </StepCard>
           <StepCard index={2} title="Practice">
             Choose categories/difficulties and get instant feedback.

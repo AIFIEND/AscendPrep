@@ -25,6 +25,10 @@ export const authOptions: NextAuthOptions = {
             name: string;
             token: string;
             is_admin: boolean;
+            is_superadmin: boolean;
+            role: "student" | "institution_admin" | "superadmin";
+            institution_id: number | null;
+            institution_name: string | null;
           }>("/api/auth/credentials", { username, password });
 
           return {
@@ -32,6 +36,10 @@ export const authOptions: NextAuthOptions = {
             name: data.name,
             backendToken: data.token,
             is_admin: data.is_admin,
+            is_superadmin: data.is_superadmin,
+            role: data.role,
+            institution_id: data.institution_id,
+            institution_name: data.institution_name,
           };
         } catch {
           return null;
@@ -46,6 +54,10 @@ export const authOptions: NextAuthOptions = {
         token.name = user.name;
         token.backendToken = (user as { backendToken?: string }).backendToken;
         token.is_admin = (user as { is_admin?: boolean }).is_admin;
+        token.is_superadmin = (user as { is_superadmin?: boolean }).is_superadmin;
+        token.role = (user as { role?: "student" | "institution_admin" | "superadmin" }).role;
+        token.institution_id = (user as { institution_id?: number | null }).institution_id;
+        token.institution_name = (user as { institution_name?: string | null }).institution_name;
       }
       return token;
     },
@@ -55,6 +67,10 @@ export const authOptions: NextAuthOptions = {
         name: token.name ?? session.user?.name,
         backendToken: token.backendToken,
         is_admin: !!token.is_admin,
+        is_superadmin: !!token.is_superadmin,
+        role: token.role ?? "student",
+        institution_id: token.institution_id ?? null,
+        institution_name: token.institution_name ?? null,
       };
       return session;
     },

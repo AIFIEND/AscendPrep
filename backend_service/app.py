@@ -1,29 +1,20 @@
-# backend/app.py
-# UPDATED: Added random shuffling of questions when a new quiz is started.
-
 import os
 from datetime import datetime, timedelta
 import jwt
 from functools import wraps
-from flask import Flask, jsonify, request, make_response
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
-import random # NEW: Import the random module for shuffling
+import random
 from time import time
 from collections import defaultdict
 from sqlalchemy.orm.attributes import flag_modified
 
+load_dotenv()
 
-load_dotenv() 
-
-basedir = os.path.abspath(os.path.dirname(__file__))
-
-# App & Database Configuration
 app = Flask(__name__)
-
-# Require secrets from environment (no defaults)
 app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
 database_url = os.environ["SQLALCHEMY_DATABASE_URI"]
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url
@@ -34,46 +25,24 @@ if database_url.startswith("postgres") and "sslmode=" not in database_url:
         "connect_args": {"sslmode": "require"}
     }
 
-# Also require this from env; do NOT print it
-ADMIN_PASSCODE = os.environ["ADMIN_PASSCODE"]
-
-# Support one or many origins in FRONTEND_ORIGIN, e.g.
-# FRONTEND_ORIGIN=http://localhost:3000,http://192.168.0.65:3000
 _frontend_origin_raw = os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
 FRONTEND_ORIGINS = [o.strip() for o in _frontend_origin_raw.split(",") if o.strip()]
 
 CORS(
     app,
     origins=FRONTEND_ORIGINS,
-    methods=["GET", "POST", "OPTIONS"],
+    methods=["GET", "POST", "PATCH", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
     supports_credentials=True,
 )
 
-
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
 
-# --- Simple in-memory rate limiter for admin passcode ---
-# Allow 5 attempts per 5 minutes per IP (dev-safe; swap for Redis in prod).
-ADMIN_RATE_WINDOW = 5 * 60  # seconds
-ADMIN_RATE_MAX = 5
-_admin_attempts = defaultdict(list)  # ip -> [timestamps]
-
-def _admin_rate_limited(ip: str) -> bool:
-    now = time()
-    # Drop stale attempts outside the window
-    _admin_attempts[ip] = [t for t in _admin_attempts[ip] if now - t < ADMIN_RATE_WINDOW]
-    if len(_admin_attempts[ip]) >= ADMIN_RATE_MAX:
-        return True
-    _admin_attempts[ip].append(now)
-    return False
-
-# --- Simple in-memory rate limiter for LOGIN ---
-# Allow 10 attempts per 5 minutes per IP (dev-safe; use Redis in prod).
-LOGIN_RATE_WINDOW = 5 * 60  # seconds
+LOGIN_RATE_WINDOW = 5 * 60
 LOGIN_RATE_MAX = 10
-_login_attempts = defaultdict(list)  # ip -> [timestamps]
+_login_attempts = defaultdict(list)
+
 
 def _login_rate_limited(ip: str) -> bool:
     now = time()
@@ -84,11 +53,13 @@ def _login_rate_limited(ip: str) -> bool:
     return False
 
 
-def is_production() -> bool:
-    return os.environ.get("FLASK_ENV") == "production" or os.environ.get("ENV") == "production"
+class Institution(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(160), unique=True, nullable=False)
+    registration_code = db.Column(db.String(12), unique=True, nullable=False, index=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
-
-# --- Database Model Definitions ---
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -96,12 +67,16 @@ class User(db.Model):
     password_hash = db.Column(db.String(128), nullable=False)
     attempts = db.relationship('QuizAttempt', backref='user', lazy=True)
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
+    is_superadmin = db.Column(db.Boolean, default=False, nullable=False)
+    institution_id = db.Column(db.Integer, db.ForeignKey('institution.id'), nullable=True, index=True)
+    institution = db.relationship('Institution', backref=db.backref('users', lazy=True))
 
     def set_password(self, password):
         self.password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
 
     def check_password(self, password):
         return bcrypt.check_password_hash(self.password_hash, password)
+
 
 class Question(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -117,14 +92,20 @@ class Question(db.Model):
 
     def to_dict(self):
         return {
-            'id': self.id, 'question': self.question,
+            'id': self.id,
+            'question': self.question,
             'options': [
-                {'id': 'A', 'text': self.optionA}, {'id': 'B', 'text': self.optionB},
-                {'id': 'C', 'text': self.optionC}, {'id': 'D', 'text': self.optionD},
+                {'id': 'A', 'text': self.optionA},
+                {'id': 'B', 'text': self.optionB},
+                {'id': 'C', 'text': self.optionC},
+                {'id': 'D', 'text': self.optionD},
             ],
-            'correctAnswer': self.correctAnswer, 'explanation': self.explanation,
-            'category': self.category, 'difficulty': self.difficulty,
+            'correctAnswer': self.correctAnswer,
+            'explanation': self.explanation,
+            'category': self.category,
+            'difficulty': self.difficulty,
         }
+
 
 class QuizAttempt(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -152,22 +133,44 @@ class QuizAttempt(db.Model):
             'results_by_category': self.results_by_category
         }
 
-# --- Decorators ---
+
+def generate_registration_code() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    for _ in range(10):
+        code = "".join(random.choice(alphabet) for _ in range(6))
+        if Institution.query.filter_by(registration_code=code).first() is None:
+            return code
+    raise RuntimeError("Could not generate unique registration code")
+
+
+def role_for_user(user: User) -> str:
+    if user.is_superadmin:
+        return "superadmin"
+    if user.is_admin:
+        return "institution_admin"
+    return "student"
+
+
+def issue_token(user: User) -> str:
+    return jwt.encode({
+        'user_id': user.id,
+        'is_admin': user.is_admin,
+        'is_superadmin': user.is_superadmin,
+        'role': role_for_user(user),
+        'institution_id': user.institution_id,
+        'exp': datetime.utcnow() + timedelta(hours=24)
+    }, app.config['SECRET_KEY'], algorithm="HS256")
+
 
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        # Read token from Authorization: Bearer <token>
         auth = request.headers.get("Authorization", "")
-        token = None
-        if auth.startswith("Bearer "):
-            token = auth.split(" ", 1)[1].strip()
-
+        token = auth.split(" ", 1)[1].strip() if auth.startswith("Bearer ") else None
         if not token:
             return jsonify({"message": "Authorization token is missing"}), 401
 
         try:
-            # Allow small clock skew (30s) to avoid edge cases around expiry
             payload = jwt.decode(
                 token,
                 app.config["SECRET_KEY"],
@@ -192,70 +195,34 @@ def token_required(f):
 
     return decorated
 
-def admin_required(f):
+
+def institution_admin_required(f):
     @wraps(f)
-    def wrapper(*args, **kwargs):
-        # First, require a valid user token
-        auth = request.headers.get("Authorization", "")
-        token = None
-        if auth.startswith("Bearer "):
-            token = auth.split(" ", 1)[1].strip()
-        if not token:
-            return jsonify({"message": "Authorization token is missing"}), 401
-
-        try:
-            payload = jwt.decode(
-                token,
-                app.config["SECRET_KEY"],
-                algorithms=["HS256"],
-                options={"require": ["exp"]},
-                leeway=30,
-            )
-            user_id = payload.get("user_id")
-            is_admin_flag = payload.get("is_admin", False)
-            current_user = User.query.get(user_id)
-            if not current_user:
-                return jsonify({"message": "User not found"}), 401
-        except jwt.ExpiredSignatureError:
-            return jsonify({"message": "Token expired"}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({"message": "Token invalid"}), 401
-
-        # If the user has admin role, allow immediately
-        if getattr(current_user, "is_admin", False) or is_admin_flag:
-            return f(current_user, *args, **kwargs)
-
-        # Otherwise, check the short-lived admin cookie from the passcode gate
-        admin_access_token = request.cookies.get("admin_access_token")
-        if not admin_access_token:
-            return jsonify({"message": "Admin privileges required"}), 403
-
-        try:
-            jwt.decode(
-                admin_access_token,
-                app.config["SECRET_KEY"],
-                algorithms=["HS256"],
-                options={"require": ["exp"]},
-                leeway=30,
-            )
-        except jwt.ExpiredSignatureError:
-            return jsonify({"message": "Admin access expired"}), 403
-        except jwt.InvalidTokenError:
-            return jsonify({"message": "Admin access token invalid"}), 403
-
+    def wrapper(current_user, *args, **kwargs):
+        if not current_user.is_admin or current_user.is_superadmin:
+            return jsonify({'message': 'Institution admin privileges required'}), 403
+        if not current_user.institution_id:
+            return jsonify({'message': 'No institution assigned'}), 403
         return f(current_user, *args, **kwargs)
 
-    return wrapper
+    return token_required(wrapper)
 
-# --- API Endpoints ---
 
-# --- Minimal security headers for every response ---
+def superadmin_required(f):
+    @wraps(f)
+    def wrapper(current_user, *args, **kwargs):
+        if not current_user.is_superadmin:
+            return jsonify({'message': 'Superadmin privileges required'}), 403
+        return f(current_user, *args, **kwargs)
+
+    return token_required(wrapper)
+
+
 @app.after_request
 def set_security_headers(resp):
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    # Lock down some powerful features by default
     resp.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     return resp
 
@@ -265,10 +232,10 @@ def register_user():
     data = request.get_json() or {}
     username = (data.get('username') or '').strip()
     password = data.get('password') or ''
+    institution_code = (data.get('institutionCode') or '').strip().upper()
 
-    # Hardened validation (INSIDE the function)
-    if not username or not password:
-        return jsonify({'message': 'Username and password required'}), 400
+    if not username or not password or not institution_code:
+        return jsonify({'message': 'Username, password, and institution code are required'}), 400
     if len(username) < 3:
         return jsonify({'message': 'Username must be at least 3 characters'}), 400
     if len(password) < 8:
@@ -276,31 +243,21 @@ def register_user():
     if User.query.filter_by(username=username).first():
         return jsonify({'message': 'User already exists'}), 400
 
-    user = User(username=username)
-    user.set_password(password)
+    institution = Institution.query.filter_by(registration_code=institution_code, is_active=True).first()
+    if not institution:
+        return jsonify({'message': 'Invalid institution code. Ask your counselor for a valid code.'}), 400
 
-    # First user becomes admin
-    if User.query.count() == 0:
-        user.is_admin = True
+    user = User(username=username, institution_id=institution.id, is_admin=False, is_superadmin=False)
+    user.set_password(password)
 
     db.session.add(user)
     db.session.commit()
 
-    token = jwt.encode(
-        {
-            'user_id': user.id,
-            'is_admin': user.is_admin,
-            'exp': datetime.utcnow() + timedelta(hours=24)
-        },
-        app.config['SECRET_KEY'],
-        algorithm="HS256"
-    )
-
     return jsonify({
         'id': user.id,
         'name': user.username,
-        'token': token,
-        'is_admin': user.is_admin
+        'institution_name': institution.name,
+        'role': role_for_user(user)
     }), 201
 
 
@@ -321,21 +278,233 @@ def verify_and_get_token():
     if not user or not user.check_password(password):
         return jsonify({"message": "Invalid username or password"}), 401
 
-    token = jwt.encode({
-        'user_id': user.id,
-        'is_admin': user.is_admin,
-        'exp': datetime.utcnow() + timedelta(hours=24)
-    }, app.config['SECRET_KEY'], algorithm="HS256")
-    
+    if user.institution_id is not None:
+        institution = Institution.query.get(user.institution_id)
+        if not institution or not institution.is_active:
+            return jsonify({"message": "Your institution is currently inactive."}), 403
+
+    token = issue_token(user)
+
     return jsonify({
         'id': user.id,
         'name': user.username,
         'token': token,
-        'is_admin': user.is_admin
+        'is_admin': user.is_admin,
+        'is_superadmin': user.is_superadmin,
+        'role': role_for_user(user),
+        'institution_id': user.institution_id,
+        'institution_name': user.institution.name if user.institution else None,
     }), 200
 
 
-# UPDATED: This endpoint now shuffles the questions before creating the attempt.
+@app.route('/api/session/me', methods=['GET'])
+@token_required
+def session_me(current_user):
+    return jsonify({
+        'id': current_user.id,
+        'username': current_user.username,
+        'role': role_for_user(current_user),
+        'institution_id': current_user.institution_id,
+        'institution_name': current_user.institution.name if current_user.institution else None,
+    }), 200
+
+
+@app.route('/api/superadmin/summary', methods=['GET'])
+@superadmin_required
+def superadmin_summary(current_user):
+    total_institutions = Institution.query.count()
+    total_users = User.query.filter_by(is_superadmin=False).count()
+    total_admins = User.query.filter_by(is_admin=True, is_superadmin=False).count()
+    total_quizzes = QuizAttempt.query.filter_by(is_complete=True).count()
+    return jsonify({
+        'total_institutions': total_institutions,
+        'total_users': total_users,
+        'total_admins': total_admins,
+        'total_quizzes_taken': total_quizzes,
+    }), 200
+
+
+@app.route('/api/superadmin/institutions', methods=['GET'])
+@superadmin_required
+def list_institutions(current_user):
+    institutions = Institution.query.order_by(Institution.name.asc()).all()
+    payload = []
+    for inst in institutions:
+        user_count = User.query.filter_by(institution_id=inst.id, is_superadmin=False).count()
+        admin_count = User.query.filter_by(institution_id=inst.id, is_admin=True, is_superadmin=False).count()
+        quiz_count = (
+            db.session.query(QuizAttempt)
+            .join(User, QuizAttempt.user_id == User.id)
+            .filter(User.institution_id == inst.id, QuizAttempt.is_complete == True)
+            .count()
+        )
+        payload.append({
+            'id': inst.id,
+            'name': inst.name,
+            'registration_code': inst.registration_code,
+            'is_active': inst.is_active,
+            'users': user_count,
+            'admins': admin_count,
+            'quizzes_taken': quiz_count,
+        })
+    return jsonify(payload), 200
+
+
+@app.route('/api/superadmin/institutions', methods=['POST'])
+@superadmin_required
+def create_institution(current_user):
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'message': 'Institution name is required'}), 400
+    if Institution.query.filter_by(name=name).first():
+        return jsonify({'message': 'Institution already exists'}), 400
+
+    institution = Institution(name=name, registration_code=generate_registration_code(), is_active=True)
+    db.session.add(institution)
+    db.session.commit()
+
+    return jsonify({
+        'id': institution.id,
+        'name': institution.name,
+        'registration_code': institution.registration_code,
+        'is_active': institution.is_active,
+    }), 201
+
+
+@app.route('/api/superadmin/institutions/<int:institution_id>', methods=['GET'])
+@superadmin_required
+def get_institution_detail(current_user, institution_id):
+    institution = Institution.query.get(institution_id)
+    if not institution:
+        return jsonify({'message': 'Institution not found'}), 404
+
+    users = User.query.filter_by(institution_id=institution_id, is_superadmin=False).order_by(User.username.asc()).all()
+    admins = [
+        {'id': u.id, 'username': u.username}
+        for u in users if u.is_admin
+    ]
+
+    quiz_count = (
+        db.session.query(QuizAttempt)
+        .join(User, QuizAttempt.user_id == User.id)
+        .filter(User.institution_id == institution_id, QuizAttempt.is_complete == True)
+        .count()
+    )
+
+    return jsonify({
+        'id': institution.id,
+        'name': institution.name,
+        'registration_code': institution.registration_code,
+        'is_active': institution.is_active,
+        'users': [{'id': u.id, 'username': u.username, 'is_admin': u.is_admin} for u in users],
+        'admins': admins,
+        'user_count': len(users),
+        'admin_count': len(admins),
+        'quizzes_taken': quiz_count,
+    }), 200
+
+
+@app.route('/api/superadmin/institutions/<int:institution_id>/code/regenerate', methods=['POST'])
+@superadmin_required
+def regenerate_code(current_user, institution_id):
+    institution = Institution.query.get(institution_id)
+    if not institution:
+        return jsonify({'message': 'Institution not found'}), 404
+    institution.registration_code = generate_registration_code()
+    db.session.commit()
+    return jsonify({'registration_code': institution.registration_code}), 200
+
+
+@app.route('/api/superadmin/institutions/<int:institution_id>/status', methods=['PATCH'])
+@superadmin_required
+def update_institution_status(current_user, institution_id):
+    institution = Institution.query.get(institution_id)
+    if not institution:
+        return jsonify({'message': 'Institution not found'}), 404
+    data = request.get_json() or {}
+    next_status = data.get('is_active')
+    if not isinstance(next_status, bool):
+        return jsonify({'message': 'is_active must be true or false'}), 400
+    institution.is_active = next_status
+    db.session.commit()
+    return jsonify({'is_active': institution.is_active}), 200
+
+
+@app.route('/api/superadmin/institutions/<int:institution_id>/admins', methods=['POST'])
+@superadmin_required
+def set_institution_admin(current_user, institution_id):
+    institution = Institution.query.get(institution_id)
+    if not institution:
+        return jsonify({'message': 'Institution not found'}), 404
+
+    data = request.get_json() or {}
+    user_id = data.get('user_id')
+    make_admin = bool(data.get('make_admin'))
+
+    user = User.query.filter_by(id=user_id, institution_id=institution_id, is_superadmin=False).first()
+    if not user:
+        return jsonify({'message': 'User not found in this institution'}), 404
+
+    user.is_admin = make_admin
+    db.session.commit()
+    return jsonify({'id': user.id, 'username': user.username, 'is_admin': user.is_admin}), 200
+
+
+@app.route('/api/admin/institution/summary', methods=['GET'])
+@institution_admin_required
+def institution_admin_summary(current_user):
+    institution_id = current_user.institution_id
+    students = User.query.filter_by(institution_id=institution_id, is_superadmin=False).all()
+    student_ids = [u.id for u in students]
+    attempts = QuizAttempt.query.filter(QuizAttempt.user_id.in_(student_ids), QuizAttempt.is_complete == True).all() if student_ids else []
+
+    total_students = len([u for u in students if not u.is_admin])
+    total_quizzes = len(attempts)
+    avg_score = (sum(a.score for a in attempts if a.score is not None) / len(attempts)) if attempts else None
+
+    activity = sorted([
+        {
+            'id': u.id,
+            'username': u.username,
+            'is_admin': u.is_admin,
+            'quizzes_taken': len([a for a in attempts if a.user_id == u.id]),
+            'last_active': max([a.timestamp for a in attempts if a.user_id == u.id]).isoformat() if any(a.user_id == u.id for a in attempts) else None,
+            'average_score': (
+                sum(a.score for a in attempts if a.user_id == u.id and a.score is not None) /
+                len([a for a in attempts if a.user_id == u.id and a.score is not None])
+            ) if any(a.user_id == u.id and a.score is not None for a in attempts) else None,
+        }
+        for u in students
+    ], key=lambda x: x['quizzes_taken'], reverse=True)
+
+    category_totals = {}
+    for attempt in attempts:
+        if attempt.results_by_category:
+            for category, result in attempt.results_by_category.items():
+                if category not in category_totals:
+                    category_totals[category] = {'correct': 0, 'total': 0}
+                category_totals[category]['correct'] += result['correct']
+                category_totals[category]['total'] += result['total']
+
+    institution = Institution.query.get(institution_id)
+
+    return jsonify({
+        'institution': {
+            'id': institution.id,
+            'name': institution.name,
+            'registration_code': institution.registration_code,
+        },
+        'totals': {
+            'total_students': total_students,
+            'total_quizzes_taken': total_quizzes,
+            'average_score': avg_score,
+        },
+        'users': activity,
+        'category_performance': category_totals,
+    }), 200
+
+
 @app.route('/api/quiz/start', methods=['POST'])
 @token_required
 def start_quiz(current_user):
@@ -343,8 +512,10 @@ def start_quiz(current_user):
     cats = data.get('categories', [])
     diffs = data.get('difficulties', [])
     q = Question.query
-    if cats: q = q.filter(Question.category.in_(cats))
-    if diffs: q = q.filter(Question.difficulty.in_(diffs))
+    if cats:
+        q = q.filter(Question.category.in_(cats))
+    if diffs:
+        q = q.filter(Question.difficulty.in_(diffs))
     selected = q.all()
 
     requested_count = data.get('numQuestions')
@@ -354,7 +525,6 @@ def start_quiz(current_user):
         except (TypeError, ValueError):
             return jsonify({'message': 'numQuestions must be a positive integer'}), 400
 
-    # NEW: Shuffle the selected questions randomly.
     random.shuffle(selected)
 
     if requested_count is not None:
@@ -375,6 +545,7 @@ def start_quiz(current_user):
         'attemptId': new_attempt.id,
         'questions': [q.to_dict() for q in selected]
     }), 200
+
 
 @app.route('/api/quiz/submit', methods=['POST'])
 @token_required
@@ -404,31 +575,20 @@ def submit_quiz(current_user):
             category = question.category
             if category not in results:
                 results[category] = {'correct': 0, 'total': 0}
-            
+
             results[category]['total'] += 1
             if user_answer == question.correctAnswer:
                 results[category]['correct'] += 1
-    
+
     attempt.results_by_category = results
-
-    # Calculate score server-side based on the results
     total_correct = sum(r['correct'] for r in results.values())
-    # You can calculate percentage based on the total questions in the attempt
-    # or just the questions processed. Using attempt.total_questions is safer.
-    if attempt.total_questions > 0:
-        calculated_score = int((total_correct / attempt.total_questions) * 100)
-    else:
-        calculated_score = 0
-
-    attempt.score = calculated_score
+    attempt.score = int((total_correct / attempt.total_questions) * 100) if attempt.total_questions > 0 else 0
     attempt.is_complete = True
-    
-    # FIX: Explicitly tell SQLAlchemy that the JSON dictionary changed
-    flag_modified(attempt, "results_by_category") 
-    
+    flag_modified(attempt, "results_by_category")
     db.session.commit()
 
     return jsonify({'message': 'Quiz submitted', 'attempt': attempt.to_dict()}), 200
+
 
 @app.route('/api/quiz/attempt/<int:attempt_id>/results', methods=['GET'])
 @token_required
@@ -441,16 +601,14 @@ def get_attempt_results(current_user, attempt_id):
     id_to_q = {q.id: q for q in questions}
     ordered_questions = [id_to_q[qid].to_dict() for qid in attempt.question_ids if qid in id_to_q]
 
-    return jsonify({
-        'attempt': attempt.to_dict(),
-        'questions': ordered_questions,
-    }), 200
+    return jsonify({'attempt': attempt.to_dict(), 'questions': ordered_questions}), 200
+
 
 @app.route('/api/user/progress', methods=['GET'])
 @token_required
 def get_user_progress(current_user):
     attempts = QuizAttempt.query.filter_by(user_id=current_user.id, is_complete=True).order_by(QuizAttempt.timestamp.asc()).all()
-    
+
     progress_data = []
     overall_performance = {}
 
@@ -458,7 +616,7 @@ def get_user_progress(current_user):
         if attempt.results_by_category:
             for category, result in attempt.results_by_category.items():
                 score = (result['correct'] / result['total']) * 100 if result['total'] > 0 else 0
-                
+
                 progress_data.append({
                     'timestamp': attempt.timestamp.isoformat(),
                     'test_name': attempt.test_name,
@@ -471,92 +629,9 @@ def get_user_progress(current_user):
                 overall_performance[category]['correct'] += result['correct']
                 overall_performance[category]['total'] += result['total']
 
-    return jsonify({
-        'progress_data': progress_data,
-        'overall_performance': overall_performance
-    }), 200
+    return jsonify({'progress_data': progress_data, 'overall_performance': overall_performance}), 200
 
 
-# --- ADMIN ENDPOINTS ---
-
-@app.route('/api/admin/verify-passcode', methods=['POST'])
-def verify_admin_passcode():
-    # Rate limit by client IP
-    ip = request.headers.get('X-Forwarded-For', request.remote_addr or 'unknown').split(',')[0].strip()
-    if _admin_rate_limited(ip):
-        return jsonify({'message': 'Too many attempts, please try again later'}), 429
-
-    data = request.get_json() or {}
-    passcode = data.get('passcode')
-
-    if not passcode or passcode != ADMIN_PASSCODE:
-        return jsonify({'message': 'Invalid passcode'}), 401
-
-    admin_access_token = jwt.encode({
-        'admin_access': True,
-        'exp': datetime.utcnow() + timedelta(hours=1)
-    }, app.config['SECRET_KEY'], algorithm="HS256")
-
-    resp = make_response(jsonify({'message': 'Passcode verified'}))
-    resp.set_cookie(
-        'admin_access_token',
-        value=admin_access_token,
-        httponly=True,
-        secure=is_production(),  # True in prod (HTTPS), False in dev
-        samesite='None' if is_production() else 'Lax',
-        max_age=3600,
-        path="/",
-    )
-    return resp
-
-@app.route('/api/admin/users', methods=['GET'])
-@admin_required
-def get_all_users(current_user):
-    users = User.query.all()
-    return jsonify([{
-        'id': u.id,
-        'username': u.username,
-        'is_admin': u.is_admin
-    } for u in users]), 200
-
-@app.route('/api/admin/analytics', methods=['GET'])
-@admin_required
-def get_admin_analytics(current_user):
-    all_attempts = QuizAttempt.query.filter_by(is_complete=True).all()
-    
-    total_quizzes = len(all_attempts)
-    avg_score = db.session.query(db.func.avg(QuizAttempt.score)).filter(QuizAttempt.is_complete==True).scalar()
-
-    performance_by_category = {}
-    for attempt in all_attempts:
-        if attempt.results_by_category:
-            for category, result in attempt.results_by_category.items():
-                if category not in performance_by_category:
-                    performance_by_category[category] = {'correct': 0, 'total': 0}
-                performance_by_category[category]['correct'] += result['correct']
-                performance_by_category[category]['total'] += result['total']
-    
-    users = User.query.all()
-    user_analytics = []
-    for user in users:
-        user_attempts = [a for a in all_attempts if a.user_id == user.id]
-        if user_attempts:
-            user_avg_score = sum(a.score for a in user_attempts if a.score is not None) / len(user_attempts)
-            user_analytics.append({
-                'id': user.id,
-                'username': user.username,
-                'quiz_count': len(user_attempts),
-                'average_score': user_avg_score
-            })
-
-    return jsonify({
-        'total_quizzes_taken': total_quizzes,
-        'average_score_all_users': avg_score,
-        'performance_by_category': performance_by_category,
-        'user_analytics': user_analytics
-    }), 200
-
-# --- Other endpoints ---
 @app.route('/api/quiz/answer', methods=['POST'])
 @token_required
 def save_answer(current_user):
@@ -573,16 +648,13 @@ def save_answer(current_user):
     db.session.commit()
     return jsonify({'message': 'Answer saved'}), 200
 
+
 @app.route('/api/user/attempts', methods=['GET'])
 @token_required
 def get_user_attempts(current_user):
-    attempts = (
-        QuizAttempt.query
-        .filter_by(user_id=current_user.id)
-        .order_by(QuizAttempt.timestamp.desc())
-        .all()
-    )
+    attempts = QuizAttempt.query.filter_by(user_id=current_user.id).order_by(QuizAttempt.timestamp.desc()).all()
     return jsonify([a.to_dict() for a in attempts])
+
 
 @app.route('/api/quiz/resume/<int:attempt_id>', methods=['GET'])
 @token_required
@@ -593,10 +665,8 @@ def resume_quiz(current_user, attempt_id):
     qs = Question.query.filter(Question.id.in_(attempt.question_ids)).all()
     id_to_q = {q.id: q for q in qs}
     ordered = [id_to_q[qid] for qid in attempt.question_ids if qid in id_to_q]
-    return jsonify({
-        'questions': [q.to_dict() for q in ordered],
-        'answersSoFar': attempt.answers
-    }), 200
+    return jsonify({'questions': [q.to_dict() for q in ordered], 'answersSoFar': attempt.answers}), 200
+
 
 @app.route('/api/questions')
 def get_questions():
@@ -610,33 +680,40 @@ def get_questions():
     questions = db.session.execute(query).scalars().all()
     return jsonify([q.to_dict() for q in questions])
 
+
 @app.route('/api/quiz-config')
 def get_quiz_config():
     categories = db.session.query(Question.category).distinct().all()
     difficulties = db.session.query(Question.difficulty).distinct().all()
-    return jsonify({
-        'categories': [c[0] for c in categories],
-        'difficulties': [d[0] for d in difficulties]
-    })
+    return jsonify({'categories': [c[0] for c in categories], 'difficulties': [d[0] for d in difficulties]})
+
 
 @app.route('/api/health', methods=['GET'])
 def health():
-    return jsonify({
-        'status': 'ok',
-        'time': datetime.utcnow().isoformat()
-    }), 200
+    return jsonify({'status': 'ok', 'time': datetime.utcnow().isoformat()}), 200
 
 
-# Create database tables if they don't exist
 with app.app_context():
     try:
         db.create_all()
+        if User.query.filter_by(is_superadmin=True).count() == 0:
+            username = os.environ.get('SUPERADMIN_USERNAME', 'superadmin')
+            password = os.environ.get('SUPERADMIN_PASSWORD', 'ChangeMe123!')
+            user = User.query.filter_by(username=username).first()
+            if user is None:
+                user = User(username=username, is_superadmin=True, is_admin=True, institution_id=None)
+                user.set_password(password)
+                db.session.add(user)
+            else:
+                user.is_superadmin = True
+                user.is_admin = True
+                user.institution_id = None
+            db.session.commit()
         print("✅ Database tables initialized successfully")
     except Exception as e:
         print(f"⚠️ Database initialization warning: {e}")
 
+
 if __name__ == '__main__':
-    # Get port from environment variable or default to 5000
     port = int(os.environ.get('PORT', 5000))
-    # Bind to all interfaces in Docker
     app.run(host='0.0.0.0', port=port, debug=False)

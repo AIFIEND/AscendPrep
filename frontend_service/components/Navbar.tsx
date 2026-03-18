@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -22,22 +23,43 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { roleLabel, type AppRole } from "@/lib/role-navigation";
 
-const navLinks = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/start-quiz", label: "Start Quiz" },
-  { href: "/progress", label: "Progress" },
-  { href: "/tests-taken", label: "Tests" },
-];
+type NavItem = { href: string; label: string };
+
+function getNav(role: AppRole): NavItem[] {
+  if (role === "superadmin") {
+    return [
+      { href: "/superadmin/dashboard", label: "Superadmin Dashboard" },
+      { href: "/superadmin/institutions", label: "Institutions" },
+    ];
+  }
+
+  if (role === "institution_admin") {
+    return [
+      { href: "/admin/dashboard", label: "Admin Dashboard" },
+      { href: "/admin/students", label: "Students / Users" },
+      { href: "/admin/institution", label: "Institution Overview" },
+      { href: "/dashboard", label: "Student View" },
+    ];
+  }
+
+  return [
+    { href: "/dashboard", label: "Home" },
+    { href: "/start-quiz", label: "Start Quiz" },
+    { href: "/results", label: "My Results" },
+    { href: "/progress", label: "My Progress" },
+    { href: "/tests-taken", label: "My Tests" },
+  ];
+}
 
 export default function Navbar() {
   const { data: session } = useSession();
   const pathname = usePathname();
-  const userName =
-    session?.user?.name ||
-    (session?.user as any)?.username ||
-    (session?.user as any)?.email ||
-    "User";
+
+  const role = (session?.user?.role ?? "student") as AppRole;
+  const navLinks = getNav(role);
+  const userName = session?.user?.name || "User";
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
@@ -94,7 +116,10 @@ export default function Navbar() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button className="flex items-center gap-3 rounded-full px-2 py-1 hover:bg-accent">
-                    <span className="hidden sm:inline text-sm font-medium max-w-32 truncate">{userName}</span>
+                    <div className="hidden sm:flex sm:flex-col sm:items-end">
+                      <span className="text-sm font-medium max-w-32 truncate">{userName}</span>
+                      <Badge variant="secondary" className="text-[10px] px-2 py-0">{roleLabel(role)}</Badge>
+                    </div>
                     <Avatar className="h-8 w-8">
                       <AvatarImage alt={userName} />
                       <AvatarFallback>
@@ -103,27 +128,19 @@ export default function Navbar() {
                     </Avatar>
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuLabel className="truncate">{userName}</DropdownMenuLabel>
+                  <DropdownMenuLabel className="pt-0 text-xs font-normal text-muted-foreground">{roleLabel(role)}</DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
                     <Link href="/profile">Profile</Link>
                   </DropdownMenuItem>
-                  {session?.user?.is_admin ? (
-                    <DropdownMenuItem asChild>
-                      <Link href="/admin/dashboard">Admin Dashboard</Link>
-                    </DropdownMenuItem>
-                  ) : (
-                    <DropdownMenuItem asChild>
-                      <Link href="/admin">Admin</Link>
-                    </DropdownMenuItem>
-                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => signOut({ callbackUrl: "/" })}
                     className="text-destructive"
                   >
-                    Logout
+                    Log out
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

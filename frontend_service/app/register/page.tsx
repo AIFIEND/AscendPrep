@@ -1,6 +1,3 @@
-// app/register/page.tsx
-// Client page: create account -> show success -> auto-redirect to /login (and offer a button).
-
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -23,14 +20,15 @@ export default function RegisterPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [institutionCode, setInstitutionCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [codeErrorMsg, setCodeErrorMsg] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  // After success, auto-redirect to /login in ~1.5s
   useEffect(() => {
     if (success) {
-      const t = setTimeout(() => router.push("/login"), 1500);
+      const t = setTimeout(() => router.push("/login"), 1800);
       return () => clearTimeout(t);
     }
   }, [success, router]);
@@ -38,16 +36,27 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
+    setCodeErrorMsg(null);
     setIsSubmitting(true);
+
     try {
-      await postJson("/api/register", { username, password });
+      await postJson("/api/register", {
+        username,
+        password,
+        institutionCode: institutionCode.trim().toUpperCase(),
+      });
       setSuccess(true);
     } catch (err: any) {
       const msg =
         (err?.data && (err.data.message || err.data.error)) ||
         err?.message ||
         "Registration failed.";
-      setErrorMsg(msg);
+
+      if (String(msg).toLowerCase().includes("institution code")) {
+        setCodeErrorMsg(msg);
+      } else {
+        setErrorMsg(msg);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -57,22 +66,17 @@ export default function RegisterPage() {
     <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Create your account</CardTitle>
+          <CardTitle>Create your student account</CardTitle>
           <CardDescription>
-            Already have one?{" "}
-            <Link href="/login" className="underline">
-              Log in
-            </Link>
-            .
+            Registration requires your institution code. Your school or club counselor should provide this code.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {success ? (
             <Alert>
-              <AlertTitle>Success!</AlertTitle>
+              <AlertTitle>Account created successfully</AlertTitle>
               <AlertDescription>
-                Your account was created. Redirecting to{" "}
-                <span className="font-medium">Login</span>…
+                Your account is now linked to your institution. Redirecting to login so you can start practicing.
               </AlertDescription>
               <div className="mt-4">
                 <Button asChild className="w-full">
@@ -88,6 +92,22 @@ export default function RegisterPage() {
                   <AlertDescription>{errorMsg}</AlertDescription>
                 </Alert>
               )}
+
+              <div className="space-y-2 rounded-md border p-3 bg-muted/30">
+                <Label htmlFor="institution-code" className="font-semibold">Institution code (required)</Label>
+                <Input
+                  id="institution-code"
+                  value={institutionCode}
+                  onChange={(e) => setInstitutionCode(e.target.value.toUpperCase())}
+                  required
+                  className={codeErrorMsg ? "border-destructive" : ""}
+                />
+                <p className="text-xs text-muted-foreground">
+                  This code connects your account to the correct school or organization.
+                </p>
+                {codeErrorMsg && <p className="text-sm text-destructive">{codeErrorMsg}</p>}
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="username">Username</Label>
                 <Input
@@ -113,6 +133,9 @@ export default function RegisterPage() {
               <Button type="submit" className="w-full" disabled={isSubmitting}>
                 {isSubmitting ? "Creating..." : "Create account"}
               </Button>
+              <p className="text-xs text-center text-muted-foreground">
+                Already have an account? <Link href="/login" className="underline">Log in</Link>.
+              </p>
             </form>
           )}
         </CardContent>
