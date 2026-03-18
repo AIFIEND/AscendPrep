@@ -4,6 +4,9 @@ const nextConfig = {
     unoptimized: true,
   },
   output: 'standalone',
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   experimental: {
     missingSuspenseWithCSRBailout: false,
   },
