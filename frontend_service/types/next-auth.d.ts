@@ -7,6 +7,7 @@ declare module "next-auth" {
       backendToken?: string;
       is_admin?: boolean;
       is_superadmin?: boolean;
+      is_super_admin?: boolean;
       role?: "student" | "institution_admin" | "superadmin";
       institution_id?: number | null;
       institution_name?: string | null;
@@ -19,6 +20,7 @@ declare module "next-auth/jwt" {
     backendToken?: string;
     is_admin?: boolean;
     is_superadmin?: boolean;
+    is_super_admin?: boolean;
     id?: string;
     role?: "student" | "institution_admin" | "superadmin";
     institution_id?: number | null;

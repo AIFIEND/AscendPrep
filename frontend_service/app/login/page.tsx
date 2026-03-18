@@ -61,6 +61,9 @@ export default function LoginPage() {
             <p className="text-xs text-muted-foreground text-center">
               Need an account? <Link href="/register" className="underline">Register with your institution code</Link>.
             </p>
+            <p className="text-xs text-muted-foreground text-center">
+              First-time platform setup? <Link href="/setup/superadmin" className="underline">Create initial superadmin</Link>.
+            </p>
           </form>
         </CardContent>
       </Card>

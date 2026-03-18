@@ -6,15 +6,18 @@ import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getJson, ApiError } from "@/lib/api";
+import { resolveRole } from "@/lib/role-navigation";
+import { AccessDeniedState } from "@/components/access-denied-state";
 
 export default function SuperadminDashboardPage() {
   const { data: session, status } = useSession();
+  const role = resolveRole(session?.user);
   const [summary, setSummary] = useState<any>(null);
   const [error, setError] = useState<string>("");
 
   useEffect(() => {
     if (!session?.user?.backendToken) return;
-    if (session.user.role !== "superadmin") return;
+    if (role !== "superadmin") return;
 
     getJson("/api/superadmin/summary", {
       headers: { Authorization: `Bearer ${session.user.backendToken}` },
@@ -24,11 +27,19 @@ export default function SuperadminDashboardPage() {
         if (err instanceof ApiError && err.status === 403) setError("Access denied for current role.");
         else setError("Could not load superadmin data.");
       });
-  }, [session]);
+  }, [session, role]);
 
   if (status === "loading") return <p className="text-sm text-muted-foreground">Loading…</p>;
   if (!session) return <p className="text-sm">Please log in.</p>;
-  if (session.user.role !== "superadmin") return <p className="text-sm text-destructive">Access denied.</p>;
+  if (role !== "superadmin") {
+    return (
+      <AccessDeniedState
+        description="This page is only available to superadmins."
+        actionHref="/dashboard"
+        actionLabel="Go to my dashboard"
+      />
+    );
+  }
 
   return (
     <div className="container mx-auto p-4 space-y-6">

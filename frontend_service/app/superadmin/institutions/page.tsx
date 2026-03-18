@@ -9,9 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { resolveRole } from "@/lib/role-navigation";
+import { AccessDeniedState } from "@/components/access-denied-state";
 
 export default function InstitutionsPage() {
   const { data: session } = useSession();
+  const role = resolveRole(session?.user);
   const token = session?.user?.backendToken;
 
   const [institutions, setInstitutions] = useState<any[]>([]);
@@ -43,16 +46,24 @@ export default function InstitutionsPage() {
   };
 
   useEffect(() => {
-    if (!token || session?.user?.role !== "superadmin") return;
+    if (!token || role !== "superadmin") return;
     loadInstitutions().catch(() => setError("Failed to load institutions."));
-  }, [token, session?.user?.role]);
+  }, [token, role]);
 
   const filtered = useMemo(
     () => institutions.filter((i) => i.name.toLowerCase().includes(search.toLowerCase())),
     [institutions, search]
   );
 
-  if (session?.user?.role !== "superadmin") return <p className="text-sm text-destructive">Access denied.</p>;
+  if (role !== "superadmin") {
+    return (
+      <AccessDeniedState
+        description="Only superadmins can manage institutions."
+        actionHref="/dashboard"
+        actionLabel="Go to my dashboard"
+      />
+    );
+  }
 
   const createInstitution = async () => {
     if (!token) return;

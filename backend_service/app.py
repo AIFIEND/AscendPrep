@@ -227,6 +227,68 @@ def set_security_headers(resp):
     return resp
 
 
+@app.route('/api/institutions/validate-code', methods=['POST'])
+def validate_institution_code():
+    data = request.get_json() or {}
+    institution_code = (data.get('institutionCode') or '').strip().upper()
+    if not institution_code:
+        return jsonify({'message': 'Institution code is required'}), 400
+
+    institution = Institution.query.filter_by(registration_code=institution_code).first()
+    if not institution:
+        return jsonify({'message': 'Institution code not found'}), 404
+    if not institution.is_active:
+        return jsonify({'message': 'Institution is inactive. Contact your counselor.'}), 403
+
+    return jsonify({
+        'valid': True,
+        'institution_id': institution.id,
+        'institution_name': institution.name,
+    }), 200
+
+
+@app.route('/api/bootstrap/status', methods=['GET'])
+def bootstrap_status():
+    return jsonify({
+        'needs_superadmin_bootstrap': User.query.filter_by(is_superadmin=True).count() == 0
+    }), 200
+
+
+@app.route('/api/bootstrap/superadmin', methods=['POST'])
+def bootstrap_superadmin():
+    if User.query.filter_by(is_superadmin=True).count() > 0:
+        return jsonify({'message': 'Superadmin already exists'}), 409
+
+    data = request.get_json() or {}
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+    bootstrap_token = data.get('bootstrapToken')
+    expected_token = os.environ.get('SUPERADMIN_BOOTSTRAP_TOKEN')
+
+    if expected_token and bootstrap_token != expected_token:
+        return jsonify({'message': 'Invalid bootstrap token'}), 403
+
+    if not username or not password:
+        return jsonify({'message': 'Username and password are required'}), 400
+    if len(username) < 3:
+        return jsonify({'message': 'Username must be at least 3 characters'}), 400
+    if len(password) < 8:
+        return jsonify({'message': 'Password must be at least 8 characters'}), 400
+    if User.query.filter_by(username=username).first():
+        return jsonify({'message': 'Username already exists'}), 400
+
+    user = User(username=username, is_superadmin=True, is_admin=True, institution_id=None)
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+
+    return jsonify({
+        'id': user.id,
+        'username': user.username,
+        'role': role_for_user(user),
+    }), 201
+
+
 @app.route('/api/register', methods=['POST'])
 def register_user():
     data = request.get_json() or {}
@@ -257,6 +319,7 @@ def register_user():
         'id': user.id,
         'name': user.username,
         'institution_name': institution.name,
+        'institution_id': institution.id,
         'role': role_for_user(user)
     }), 201
 
@@ -291,6 +354,7 @@ def verify_and_get_token():
         'token': token,
         'is_admin': user.is_admin,
         'is_superadmin': user.is_superadmin,
+        'is_super_admin': user.is_superadmin,
         'role': role_for_user(user),
         'institution_id': user.institution_id,
         'institution_name': user.institution.name if user.institution else None,
@@ -303,6 +367,9 @@ def session_me(current_user):
     return jsonify({
         'id': current_user.id,
         'username': current_user.username,
+        'is_admin': current_user.is_admin,
+        'is_superadmin': current_user.is_superadmin,
+        'is_super_admin': current_user.is_superadmin,
         'role': role_for_user(current_user),
         'institution_id': current_user.institution_id,
         'institution_name': current_user.institution.name if current_user.institution else None,
@@ -690,25 +757,17 @@ def get_quiz_config():
 
 @app.route('/api/health', methods=['GET'])
 def health():
-    return jsonify({'status': 'ok', 'time': datetime.utcnow().isoformat()}), 200
+    return jsonify({
+        'status': 'ok',
+        'time': datetime.utcnow().isoformat(),
+        'multi_tenant_enabled': True,
+        'needs_superadmin_bootstrap': User.query.filter_by(is_superadmin=True).count() == 0,
+    }), 200
 
 
 with app.app_context():
     try:
         db.create_all()
-        if User.query.filter_by(is_superadmin=True).count() == 0:
-            username = os.environ.get('SUPERADMIN_USERNAME', 'superadmin')
-            password = os.environ.get('SUPERADMIN_PASSWORD', 'ChangeMe123!')
-            user = User.query.filter_by(username=username).first()
-            if user is None:
-                user = User(username=username, is_superadmin=True, is_admin=True, institution_id=None)
-                user.set_password(password)
-                db.session.add(user)
-            else:
-                user.is_superadmin = True
-                user.is_admin = True
-                user.institution_id = None
-            db.session.commit()
         print("✅ Database tables initialized successfully")
     except Exception as e:
         print(f"⚠️ Database initialization warning: {e}")

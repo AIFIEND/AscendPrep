@@ -1,6 +1,7 @@
 import { NextAuthOptions } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { postJson } from "@/lib/api";
+import { resolveRole } from "@/lib/role-navigation";
 
 export const authOptions: NextAuthOptions = {
   session: {
@@ -26,18 +27,26 @@ export const authOptions: NextAuthOptions = {
             token: string;
             is_admin: boolean;
             is_superadmin: boolean;
+            is_super_admin?: boolean;
             role: "student" | "institution_admin" | "superadmin";
             institution_id: number | null;
             institution_name: string | null;
           }>("/api/auth/credentials", { username, password });
+
+          const resolvedRole = resolveRole({
+            role: data.role,
+            is_admin: data.is_admin,
+            is_superadmin: data.is_superadmin || data.is_super_admin,
+          });
 
           return {
             id: String(data.id),
             name: data.name,
             backendToken: data.token,
             is_admin: data.is_admin,
-            is_superadmin: data.is_superadmin,
-            role: data.role,
+            is_superadmin: data.is_superadmin || data.is_super_admin,
+            is_super_admin: data.is_superadmin || data.is_super_admin,
+            role: resolvedRole,
             institution_id: data.institution_id,
             institution_name: data.institution_name,
           };
@@ -55,7 +64,13 @@ export const authOptions: NextAuthOptions = {
         token.backendToken = (user as { backendToken?: string }).backendToken;
         token.is_admin = (user as { is_admin?: boolean }).is_admin;
         token.is_superadmin = (user as { is_superadmin?: boolean }).is_superadmin;
-        token.role = (user as { role?: "student" | "institution_admin" | "superadmin" }).role;
+        token.is_super_admin = (user as { is_super_admin?: boolean }).is_super_admin;
+        token.role = resolveRole({
+          role: (user as { role?: "student" | "institution_admin" | "superadmin" }).role,
+          is_admin: (user as { is_admin?: boolean }).is_admin,
+          is_superadmin: (user as { is_superadmin?: boolean }).is_superadmin,
+          is_super_admin: (user as { is_super_admin?: boolean }).is_super_admin,
+        });
         token.institution_id = (user as { institution_id?: number | null }).institution_id;
         token.institution_name = (user as { institution_name?: string | null }).institution_name;
       }
@@ -68,7 +83,13 @@ export const authOptions: NextAuthOptions = {
         backendToken: token.backendToken,
         is_admin: !!token.is_admin,
         is_superadmin: !!token.is_superadmin,
-        role: token.role ?? "student",
+        is_super_admin: !!token.is_superadmin || !!token.is_super_admin,
+        role: resolveRole({
+          role: token.role,
+          is_admin: !!token.is_admin,
+          is_superadmin: !!token.is_superadmin,
+          is_super_admin: !!token.is_super_admin,
+        }),
         institution_id: token.institution_id ?? null,
         institution_name: token.institution_name ?? null,
       };

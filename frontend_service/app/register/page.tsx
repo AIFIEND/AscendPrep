@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { postJson } from "@/lib/api";
+import { ApiError, postJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -22,6 +22,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [institutionCode, setInstitutionCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isValidatingCode, setIsValidatingCode] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [codeErrorMsg, setCodeErrorMsg] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -33,13 +34,48 @@ export default function RegisterPage() {
     }
   }, [success, router]);
 
+  const validateCode = async () => {
+    const normalizedCode = institutionCode.trim().toUpperCase();
+    if (!normalizedCode) {
+      setCodeErrorMsg("Institution code is required.");
+      return false;
+    }
+
+    setIsValidatingCode(true);
+    setCodeErrorMsg(null);
+
+    try {
+      await postJson("/api/institutions/validate-code", {
+        institutionCode: normalizedCode,
+      });
+      return true;
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 404) {
+        setCodeErrorMsg(
+          "This preview is connected to an older backend. Update NEXT_PUBLIC_API_URL to the multi-tenant backend."
+        );
+        return false;
+      }
+      setCodeErrorMsg(
+        err instanceof ApiError
+          ? err.message
+          : "Invalid institution code. Ask your counselor for a valid code."
+      );
+      return false;
+    } finally {
+      setIsValidatingCode(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
-    setCodeErrorMsg(null);
     setIsSubmitting(true);
 
     try {
+      const isCodeValid = await validateCode();
+      if (!isCodeValid) return;
+
       await postJson("/api/register", {
         username,
         password,
@@ -99,6 +135,7 @@ export default function RegisterPage() {
                   id="institution-code"
                   value={institutionCode}
                   onChange={(e) => setInstitutionCode(e.target.value.toUpperCase())}
+                  onBlur={validateCode}
                   required
                   className={codeErrorMsg ? "border-destructive" : ""}
                 />
@@ -130,8 +167,8 @@ export default function RegisterPage() {
                   required
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={isSubmitting}>
-                {isSubmitting ? "Creating..." : "Create account"}
+              <Button type="submit" className="w-full" disabled={isSubmitting || isValidatingCode}>
+                {isSubmitting ? "Creating..." : isValidatingCode ? "Validating code..." : "Create account"}
               </Button>
               <p className="text-xs text-center text-muted-foreground">
                 Already have an account? <Link href="/login" className="underline">Log in</Link>.

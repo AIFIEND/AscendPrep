@@ -11,6 +11,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { AuthRequiredState } from "@/components/auth-required-state";
+import { resolveRole } from "@/lib/role-navigation";
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
@@ -19,7 +20,7 @@ export default async function DashboardPage() {
     return <AuthRequiredState description="You need to be logged in to view your dashboard." />;
   }
 
-  const role = session.user.role ?? "student";
+  const role = resolveRole(session.user);
   if (role === "superadmin") redirect("/superadmin/dashboard");
   if (role === "institution_admin") redirect("/admin/dashboard");
 

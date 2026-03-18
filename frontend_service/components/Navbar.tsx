@@ -23,7 +23,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { roleLabel, type AppRole } from "@/lib/role-navigation";
+import { resolveRole, roleLabel, type AppRole } from "@/lib/role-navigation";
 
 type NavItem = { href: string; label: string };
 
@@ -57,7 +57,7 @@ export default function Navbar() {
   const { data: session } = useSession();
   const pathname = usePathname();
 
-  const role = (session?.user?.role ?? "student") as AppRole;
+  const role = resolveRole(session?.user) as AppRole;
   const navLinks = getNav(role);
   const userName = session?.user?.name || "User";
 
