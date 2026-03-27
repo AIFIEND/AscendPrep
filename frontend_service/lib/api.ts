@@ -1,10 +1,14 @@
 // frontend_service/lib/api.ts
-// 1. Get the Backend URL from environment or default to localhost
-const API_BASE = (
-  process.env.NEXT_PUBLIC_API_URL ||
-  process.env.API_URL ||
-  "http://localhost:5000"
-).replace(/\/+$/, "");
+
+const stripTrailing = (value: string) => value.replace(/\/+$/, "");
+
+const SERVER_API_BASE = stripTrailing(
+  process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
+);
+
+const CLIENT_API_BASE = stripTrailing(process.env.NEXT_PUBLIC_API_BASE || "/backend");
+
+const API_BASE = typeof window === "undefined" ? SERVER_API_BASE : CLIENT_API_BASE;
 
 export class ApiError extends Error {
   status: number;
@@ -56,8 +60,8 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
       ) {
         errorMessage = (errorData as { message: string }).message;
       }
-    } catch (e) {
-      // If JSON parse fails, ignore
+    } catch {
+      // If JSON parse fails, keep default message
     }
     throw new ApiError(errorMessage, response.status, response.statusText, errorData);
   }
@@ -65,7 +69,6 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
   return response;
 };
 
-// 2. These were missing! We add them back now.
 export const getJson = async <T = any>(
   endpoint: string,
   options: RequestInit = {}

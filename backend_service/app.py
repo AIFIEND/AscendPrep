@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime, timedelta
 import jwt
 from functools import wraps
@@ -53,7 +54,23 @@ if database_url.startswith("postgres") and "sslmode=" not in database_url:
     }
 
 _frontend_origin_raw = os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
-FRONTEND_ORIGINS = [o.strip() for o in _frontend_origin_raw.split(",") if o.strip()]
+
+
+def _cors_origin_values(raw_origins: str):
+    values = []
+    for origin in raw_origins.split(","):
+        cleaned = origin.strip()
+        if not cleaned:
+            continue
+        if "*" in cleaned:
+            pattern = "^" + re.escape(cleaned).replace(r"\*", ".*") + "$"
+            values.append(re.compile(pattern))
+        else:
+            values.append(cleaned)
+    return values
+
+
+FRONTEND_ORIGINS = _cors_origin_values(_frontend_origin_raw)
 
 CORS(
     app,
