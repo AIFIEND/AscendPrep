@@ -6,6 +6,7 @@ import Link from "next/link";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth-options";
 import { Button } from "@/components/ui/button";
+import { SetupStatusNotice } from "@/components/setup/setup-status-notice";
 import {
   Card,
   CardContent,
@@ -23,6 +24,7 @@ export default async function HomePage() {
       <section className="flex-1 flex items-center">
         <div className="container mx-auto px-4 py-16 grid gap-10 md:grid-cols-2">
           <div className="space-y-6">
+            <SetupStatusNotice />
             <span className="inline-block text-xs tracking-widest uppercase text-muted-foreground">
               DECA Practice Web App
             </span>
