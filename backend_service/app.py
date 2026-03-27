@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime, timedelta
 import jwt
 from functools import wraps
@@ -15,10 +16,37 @@ from sqlalchemy.orm.attributes import flag_modified
 load_dotenv()
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
-database_url = os.environ["SQLALCHEMY_DATABASE_URI"]
+
+
+def _require_env(name: str) -> str:
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
+
+
+def _warn_env(name: str):
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        print(f"⚠️ Startup warning: {name} is not set.")
+
+
+app.config["SECRET_KEY"] = _require_env("SECRET_KEY")
+database_url = _require_env("SQLALCHEMY_DATABASE_URI")
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+flask_env = (os.environ.get("FLASK_ENV") or "").lower()
+if flask_env in {"production", "prod"}:
+    if database_url.startswith("sqlite"):
+        print("⚠️ Startup warning: SQLALCHEMY_DATABASE_URI uses SQLite in production. Use Postgres for real deployments.")
+    if app.config["SECRET_KEY"] in {"change-this-to-a-random-secret-key-in-production", "dev-secret-change-me"}:
+        print("⚠️ Startup warning: SECRET_KEY appears to be a placeholder. Set a strong random value in production.")
+
+if flask_env in {"production", "prod"}:
+    _warn_env("SUPERADMIN_BOOTSTRAP_TOKEN")
+    _warn_env("NEXTAUTH_SECRET")
+    _warn_env("NEXTAUTH_URL")
 
 if database_url.startswith("postgres") and "sslmode=" not in database_url:
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
@@ -26,7 +54,23 @@ if database_url.startswith("postgres") and "sslmode=" not in database_url:
     }
 
 _frontend_origin_raw = os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
-FRONTEND_ORIGINS = [o.strip() for o in _frontend_origin_raw.split(",") if o.strip()]
+
+
+def _cors_origin_values(raw_origins: str):
+    values = []
+    for origin in raw_origins.split(","):
+        cleaned = origin.strip()
+        if not cleaned:
+            continue
+        if "*" in cleaned:
+            pattern = "^" + re.escape(cleaned).replace(r"\*", ".*") + "$"
+            values.append(re.compile(pattern))
+        else:
+            values.append(cleaned)
+    return values
+
+
+FRONTEND_ORIGINS = _cors_origin_values(_frontend_origin_raw)
 
 CORS(
     app,
@@ -68,6 +112,7 @@ class User(db.Model):
     attempts = db.relationship('QuizAttempt', backref='user', lazy=True)
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
     is_superadmin = db.Column(db.Boolean, default=False, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
     institution_id = db.Column(db.Integer, db.ForeignKey('institution.id'), nullable=True, index=True)
     institution = db.relationship('Institution', backref=db.backref('users', lazy=True))
 
@@ -249,8 +294,10 @@ def validate_institution_code():
 
 @app.route('/api/bootstrap/status', methods=['GET'])
 def bootstrap_status():
+    expected_token = os.environ.get('SUPERADMIN_BOOTSTRAP_TOKEN')
     return jsonify({
-        'needs_superadmin_bootstrap': User.query.filter_by(is_superadmin=True).count() == 0
+        'needs_superadmin_bootstrap': User.query.filter_by(is_superadmin=True).count() == 0,
+        'bootstrap_token_required': bool(expected_token),
     }), 200
 
 
@@ -340,6 +387,8 @@ def verify_and_get_token():
     user = User.query.filter_by(username=username).first()
     if not user or not user.check_password(password):
         return jsonify({"message": "Invalid username or password"}), 401
+    if not user.is_active:
+        return jsonify({"message": "Your account is deactivated. Contact your administrator."}), 403
 
     if user.institution_id is not None:
         institution = Institution.query.get(user.institution_id)
@@ -358,6 +407,7 @@ def verify_and_get_token():
         'role': role_for_user(user),
         'institution_id': user.institution_id,
         'institution_name': user.institution.name if user.institution else None,
+        'is_active': user.is_active,
     }), 200
 
 
@@ -373,6 +423,7 @@ def session_me(current_user):
         'role': role_for_user(current_user),
         'institution_id': current_user.institution_id,
         'institution_name': current_user.institution.name if current_user.institution else None,
+        'is_active': current_user.is_active,
     }), 200
 
 
@@ -464,7 +515,7 @@ def get_institution_detail(current_user, institution_id):
         'name': institution.name,
         'registration_code': institution.registration_code,
         'is_active': institution.is_active,
-        'users': [{'id': u.id, 'username': u.username, 'is_admin': u.is_admin} for u in users],
+        'users': [{'id': u.id, 'username': u.username, 'is_admin': u.is_admin, 'is_active': u.is_active} for u in users],
         'admins': admins,
         'user_count': len(users),
         'admin_count': len(admins),
@@ -518,6 +569,44 @@ def set_institution_admin(current_user, institution_id):
     return jsonify({'id': user.id, 'username': user.username, 'is_admin': user.is_admin}), 200
 
 
+@app.route('/api/superadmin/users/<int:user_id>/status', methods=['PATCH'])
+@superadmin_required
+def set_user_active_status(current_user, user_id):
+    data = request.get_json() or {}
+    next_status = data.get('is_active')
+    if not isinstance(next_status, bool):
+        return jsonify({'message': 'is_active must be true or false'}), 400
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+    if user.is_superadmin:
+        return jsonify({'message': 'Superadmin accounts cannot be deactivated here'}), 403
+
+    user.is_active = next_status
+    db.session.commit()
+    return jsonify({'id': user.id, 'username': user.username, 'is_active': user.is_active}), 200
+
+
+@app.route('/api/admin/users/<int:user_id>/status', methods=['PATCH'])
+@institution_admin_required
+def set_student_active_status(current_user, user_id):
+    data = request.get_json() or {}
+    next_status = data.get('is_active')
+    if not isinstance(next_status, bool):
+        return jsonify({'message': 'is_active must be true or false'}), 400
+
+    user = User.query.filter_by(id=user_id, institution_id=current_user.institution_id, is_superadmin=False).first()
+    if not user:
+        return jsonify({'message': 'User not found in your institution'}), 404
+    if user.is_admin:
+        return jsonify({'message': 'Institution admins cannot be managed from this endpoint'}), 403
+
+    user.is_active = next_status
+    db.session.commit()
+    return jsonify({'id': user.id, 'username': user.username, 'is_active': user.is_active}), 200
+
+
 @app.route('/api/admin/institution/summary', methods=['GET'])
 @institution_admin_required
 def institution_admin_summary(current_user):
@@ -535,6 +624,7 @@ def institution_admin_summary(current_user):
             'id': u.id,
             'username': u.username,
             'is_admin': u.is_admin,
+            'is_active': u.is_active,
             'quizzes_taken': len([a for a in attempts if a.user_id == u.id]),
             'last_active': max([a.timestamp for a in attempts if a.user_id == u.id]).isoformat() if any(a.user_id == u.id for a in attempts) else None,
             'average_score': (

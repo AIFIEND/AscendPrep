@@ -1,11 +1,24 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { ApiError, getJson } from "@/lib/api";
+import { ApiError, getJson, apiFetch } from "@/lib/api";
 import { useSession } from "next-auth/react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 type AdminSummary = {
   institution: { id: number; name: string; registration_code: string };
@@ -14,6 +27,7 @@ type AdminSummary = {
     id: number;
     username: string;
     is_admin: boolean;
+    is_active: boolean;
     quizzes_taken: number;
     last_active: string | null;
     average_score: number | null;
@@ -25,6 +39,8 @@ export const AdminDashboardClient = () => {
   const { data: session } = useSession();
   const [state, setState] = useState<AdminSummary | null>(null);
   const [error, setError] = useState<null | "AccessDenied" | "LoadFailed">(null);
+  const [actionError, setActionError] = useState<string>("");
+  const [actionSuccess, setActionSuccess] = useState<string>("");
 
   useEffect(() => {
     if (state || !session?.user?.backendToken) return;
@@ -69,6 +85,27 @@ export const AdminDashboardClient = () => {
   }
 
   const { totals, users, institution } = state;
+  const token = session?.user?.backendToken;
+
+  const setStudentStatus = async (userId: number, isActive: boolean) => {
+    if (!token) return;
+    setActionError("");
+    setActionSuccess("");
+    try {
+      await apiFetch(`/api/admin/users/${userId}/status`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ is_active: isActive }),
+      });
+      const refreshed = await getJson<AdminSummary>("/api/admin/institution/summary", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setState(refreshed);
+      setActionSuccess(`User ${isActive ? "reactivated" : "deactivated"} successfully.`);
+    } catch (e: unknown) {
+      setActionError(e instanceof ApiError ? e.message : "Could not update user status.");
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -104,14 +141,28 @@ export const AdminDashboardClient = () => {
           <CardDescription>Only users in your institution are visible here.</CardDescription>
         </CardHeader>
         <CardContent>
+          {actionError && (
+            <Alert className="mb-4 border-destructive/50">
+              <AlertTitle>Couldn’t update user</AlertTitle>
+              <AlertDescription>{actionError}</AlertDescription>
+            </Alert>
+          )}
+          {actionSuccess && (
+            <Alert className="mb-4">
+              <AlertTitle>Success</AlertTitle>
+              <AlertDescription>{actionSuccess}</AlertDescription>
+            </Alert>
+          )}
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>User</TableHead>
                 <TableHead>Role</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead className="text-right">Quizzes</TableHead>
                 <TableHead className="text-right">Average</TableHead>
                 <TableHead className="text-right">Last Active</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -119,9 +170,39 @@ export const AdminDashboardClient = () => {
                 <TableRow key={user.id}>
                   <TableCell className="font-medium">{user.username}</TableCell>
                   <TableCell>{user.is_admin ? "Institution Admin" : "Student"}</TableCell>
+                  <TableCell>{user.is_active ? "Active" : "Deactivated"}</TableCell>
                   <TableCell className="text-right">{user.quizzes_taken}</TableCell>
                   <TableCell className="text-right">{user.average_score?.toFixed(1) ?? "—"}%</TableCell>
                   <TableCell className="text-right">{user.last_active ? new Date(user.last_active).toLocaleDateString() : "—"}</TableCell>
+                  <TableCell className="text-right">
+                    {!user.is_admin && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button size="sm" variant={user.is_active ? "destructive" : "outline"}>
+                            {user.is_active ? "Deactivate" : "Reactivate"}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              {user.is_active ? "Deactivate student account?" : "Reactivate student account?"}
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              {user.is_active
+                                ? "This student will no longer be able to log in, but historical quiz data remains."
+                                : "This student will be able to log in again."}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => setStudentStatus(user.id, !user.is_active)}>
+                              Confirm
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
