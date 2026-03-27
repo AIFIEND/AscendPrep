@@ -105,7 +105,7 @@ export function SuperadminSetupCard() {
               {error && <p className="text-sm text-destructive">{error}</p>}
               {message && <p className="text-sm text-emerald-600">{message}</p>}
 
-              <Button type="submit" className="w-full" disabled={submitting || status === null || needsBootstrap === false}>
+              <Button type="submit" className="w-full" disabled={submitting || status?.needs_superadmin_bootstrap !== true}>
                 {submitting ? "Creating..." : "Create superadmin"}
               </Button>
               <p className="text-xs text-muted-foreground text-center">
