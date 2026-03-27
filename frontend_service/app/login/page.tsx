@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { SetupStatusNotice } from '@/components/setup/setup-status-notice';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -43,6 +44,9 @@ export default function LoginPage() {
         <CardHeader>
           <CardTitle>Login</CardTitle>
           <CardDescription>Enter your credentials to access your account.</CardDescription>
+          <div className="pt-2">
+            <SetupStatusNotice />
+          </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
@@ -62,7 +66,7 @@ export default function LoginPage() {
               Need an account? <Link href="/register" className="underline">Register with your institution code</Link>.
             </p>
             <p className="text-xs text-muted-foreground text-center">
-              First-time platform setup? <Link href="/setup/superadmin" className="underline">Create initial superadmin</Link>.
+              First-time platform setup? <Link href="/setup" className="underline">Create initial superadmin</Link>.
             </p>
           </form>
         </CardContent>
