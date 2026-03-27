@@ -21,14 +21,13 @@ Use `.env.example` as the source of truth.
 ### Backend (Flask)
 - `SECRET_KEY` (required)
 - `SQLALCHEMY_DATABASE_URI` (required)
-- `FRONTEND_ORIGIN` (comma-separated; wildcard patterns supported, e.g. `https://your-app-*.vercel.app`)
+- `FRONTEND_ORIGIN`
 - `FLASK_ENV`
 - `SUPERADMIN_BOOTSTRAP_TOKEN` (strongly recommended in production)
 
 ### Frontend (Next.js)
-- `NEXT_PUBLIC_API_BASE` (default `/backend`; keeps browser calls same-origin)
-- `API_URL` (backend origin for Next.js server/rewrite target)
-- `NEXT_PUBLIC_API_URL` (optional fallback for server-side calls)
+- `NEXT_PUBLIC_API_URL`
+- `API_URL`
 - `NEXTAUTH_URL` (required for production auth/session correctness)
 - `NEXTAUTH_SECRET` (required)
 
@@ -63,10 +62,7 @@ If a superadmin already exists, `/setup` shows **Setup already completed** and l
 ## Production notes
 - Use a real **Postgres** database (`SQLALCHEMY_DATABASE_URI`), not local SQLite.
 - Set strong random values for `SECRET_KEY` and `NEXTAUTH_SECRET`.
-- Keep browser API calls same-origin through the Next.js `/backend/*` rewrite (default via `NEXT_PUBLIC_API_BASE=/backend`).
-- Set `API_URL` on Vercel to your Render backend origin (for rewrite destination / server-side calls).
-- Set CORS `FRONTEND_ORIGIN` on Render to include your Vercel production domain and preview pattern(s).
-- Set correct public URL for `NEXTAUTH_URL`.
+- Set correct public URLs for `NEXTAUTH_URL`, `NEXT_PUBLIC_API_URL`, and CORS `FRONTEND_ORIGIN`.
 - Set `SUPERADMIN_BOOTSTRAP_TOKEN` to protect first superadmin creation.
 - User management uses **soft deactivation** (no hard-delete), so quiz history is retained.
 - Run behind HTTPS + reverse proxy (for example, Nginx, Caddy, or your cloud load balancer).

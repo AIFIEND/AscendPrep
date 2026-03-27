@@ -33,17 +33,8 @@ export function SuperadminSetupCard() {
   useEffect(() => {
     getJson<BootstrapStatus>("/api/bootstrap/status")
       .then(setStatus)
-      .catch((err: unknown) => {
-        const base = "Could not determine setup status. Check API configuration and try again.";
-        if (!(err instanceof ApiError)) {
-          setError(base);
-          return;
-        }
-        if (process.env.NODE_ENV === "production") {
-          setError(base);
-          return;
-        }
-        setError(`${base} (${err.status}: ${err.message})`);
+      .catch(() => {
+        setError("Could not determine setup status. Check API configuration and try again.");
       });
   }, []);
 
