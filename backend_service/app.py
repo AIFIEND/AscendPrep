@@ -241,6 +241,7 @@ def _superadmin_exists_safe() -> bool:
     try:
         return _superadmin_exists()
     except SQLAlchemyError as err:
+        db.session.rollback()
         print(f"⚠️ Database query warning while checking superadmin status: {err}")
         try:
             _repair_schema_for_bootstrap()
