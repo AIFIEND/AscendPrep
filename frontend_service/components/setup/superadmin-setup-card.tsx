@@ -29,14 +29,25 @@ export function SuperadminSetupCard() {
   const [message, setMessage] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+  const isDev = process.env.NODE_ENV !== "production";
+
+  const setupStatusErrorMessage = (err: unknown): string => {
+    if (!(err instanceof ApiError)) {
+      return "Could not determine setup status. Check API configuration and try again.";
+    }
+    if (isDev) {
+      return `Could not determine setup status (${err.status} ${err.statusText}): ${err.message}`;
+    }
+    return "Could not determine setup status. Check API configuration and try again.";
+  };
 
   useEffect(() => {
     getJson<BootstrapStatus>("/api/bootstrap/status")
       .then(setStatus)
-      .catch(() => {
-        setError("Could not determine setup status. Check API configuration and try again.");
+      .catch((err: unknown) => {
+        setError(setupStatusErrorMessage(err));
       });
-  }, []);
+  }, [isDev]);
 
   const createSuperadmin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,7 +116,7 @@ export function SuperadminSetupCard() {
               {error && <p className="text-sm text-destructive">{error}</p>}
               {message && <p className="text-sm text-emerald-600">{message}</p>}
 
-              <Button type="submit" className="w-full" disabled={submitting || status?.needs_superadmin_bootstrap !== true}>
+              <Button type="submit" className="w-full" disabled={submitting || !status || status.needs_superadmin_bootstrap !== true}>
                 {submitting ? "Creating..." : "Create superadmin"}
               </Button>
               <p className="text-xs text-muted-foreground text-center">

@@ -1,5 +1,6 @@
 import os
 import re
+import hmac
 from datetime import datetime, timedelta
 import jwt
 from functools import wraps
@@ -12,6 +13,8 @@ import random
 from time import time
 from collections import defaultdict
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy import inspect, text
+from sqlalchemy.exc import SQLAlchemyError
 
 load_dotenv()
 
@@ -31,19 +34,22 @@ def _warn_env(name: str):
         print(f"⚠️ Startup warning: {name} is not set.")
 
 
+def _is_production() -> bool:
+    return (os.environ.get("FLASK_ENV") or "").strip().lower() in {"production", "prod"}
+
+
 app.config["SECRET_KEY"] = _require_env("SECRET_KEY")
 database_url = _require_env("SQLALCHEMY_DATABASE_URI")
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-flask_env = (os.environ.get("FLASK_ENV") or "").lower()
-if flask_env in {"production", "prod"}:
+if _is_production():
     if database_url.startswith("sqlite"):
         print("⚠️ Startup warning: SQLALCHEMY_DATABASE_URI uses SQLite in production. Use Postgres for real deployments.")
     if app.config["SECRET_KEY"] in {"change-this-to-a-random-secret-key-in-production", "dev-secret-change-me"}:
         print("⚠️ Startup warning: SECRET_KEY appears to be a placeholder. Set a strong random value in production.")
 
-if flask_env in {"production", "prod"}:
+if _is_production():
     _warn_env("SUPERADMIN_BOOTSTRAP_TOKEN")
     _warn_env("NEXTAUTH_SECRET")
     _warn_env("NEXTAUTH_URL")
@@ -63,10 +69,17 @@ def _cors_origin_values(raw_origins: str):
         if not cleaned:
             continue
         if "*" in cleaned:
+            if _is_production():
+                print(f"⚠️ Startup warning: Wildcard FRONTEND_ORIGIN entry '{cleaned}' ignored in production.")
+                continue
             pattern = "^" + re.escape(cleaned).replace(r"\*", ".*") + "$"
             values.append(re.compile(pattern))
         else:
             values.append(cleaned)
+    if not values:
+        fallback_origin = "http://localhost:3000"
+        print(f"⚠️ Startup warning: no valid FRONTEND_ORIGIN values found; falling back to {fallback_origin}.")
+        values.append(fallback_origin)
     return values
 
 
@@ -179,6 +192,82 @@ class QuizAttempt(db.Model):
         }
 
 
+def _add_column_if_missing(table_name: str, column_name: str, ddl_fragment: str):
+    inspector = inspect(db.engine)
+    existing_columns = {c["name"] for c in inspector.get_columns(table_name)}
+    if column_name in existing_columns:
+        return
+    db.session.execute(text(f'ALTER TABLE "{table_name}" ADD COLUMN {column_name} {ddl_fragment}'))
+    print(f"✅ Schema repair: added {table_name}.{column_name}")
+
+
+def _repair_schema_for_bootstrap():
+    inspector = inspect(db.engine)
+    table_names = set(inspector.get_table_names())
+    if "user" not in table_names:
+        return
+
+    _add_column_if_missing("user", "is_admin", "BOOLEAN NOT NULL DEFAULT FALSE")
+    _add_column_if_missing("user", "is_superadmin", "BOOLEAN NOT NULL DEFAULT FALSE")
+    _add_column_if_missing("user", "is_active", "BOOLEAN NOT NULL DEFAULT TRUE")
+    _add_column_if_missing("user", "institution_id", "INTEGER")
+
+    user_columns = {c["name"] for c in inspect(db.engine).get_columns("user")}
+    if "is_super_admin" in user_columns and "is_superadmin" in user_columns:
+        db.session.execute(
+            text(
+                "UPDATE \"user\" "
+                "SET is_superadmin = COALESCE(is_superadmin, is_super_admin, FALSE) "
+                "WHERE is_superadmin IS NULL OR is_superadmin = FALSE"
+            )
+        )
+        print("✅ Schema repair: backfilled user.is_superadmin from legacy user.is_super_admin")
+
+    db.session.execute(text("UPDATE \"user\" SET is_admin = FALSE WHERE is_admin IS NULL"))
+    db.session.execute(text("UPDATE \"user\" SET is_superadmin = FALSE WHERE is_superadmin IS NULL"))
+    db.session.execute(text("UPDATE \"user\" SET is_active = TRUE WHERE is_active IS NULL"))
+
+    if "institution" in table_names:
+        _add_column_if_missing("institution", "is_active", "BOOLEAN NOT NULL DEFAULT TRUE")
+
+    db.session.commit()
+
+
+def _superadmin_exists() -> bool:
+    inspector = inspect(db.engine)
+    if "user" not in set(inspector.get_table_names()):
+        return False
+
+    user_columns = {c["name"] for c in inspector.get_columns("user")}
+    if "is_superadmin" in user_columns:
+        column_name = "is_superadmin"
+    elif "is_super_admin" in user_columns:
+        column_name = "is_super_admin"
+    else:
+        return False
+
+    count = db.session.execute(
+        text(f'SELECT COUNT(1) FROM "user" WHERE COALESCE({column_name}, FALSE) = TRUE')
+    ).scalar()
+    return int(count or 0) > 0
+
+
+def _superadmin_exists_safe() -> bool:
+    try:
+        db.session.rollback()
+        _repair_schema_for_bootstrap()
+        return _superadmin_exists()
+    except SQLAlchemyError as err:
+        print(f"⚠️ Database query warning while checking superadmin status: {err}")
+        try:
+            db.session.rollback()
+            _repair_schema_for_bootstrap()
+            return _superadmin_exists()
+        except SQLAlchemyError as repair_err:
+            print(f"⚠️ Schema repair failed while checking superadmin status: {repair_err}")
+            return False
+
+
 def generate_registration_code() -> str:
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     for _ in range(10):
@@ -230,6 +319,8 @@ def token_required(f):
             current_user = User.query.get(user_id)
             if not current_user:
                 return jsonify({"message": "User not found"}), 401
+            if not current_user.is_active:
+                return jsonify({"message": "Account inactive"}), 403
 
         except jwt.ExpiredSignatureError:
             return jsonify({"message": "Token expired"}), 401
@@ -274,7 +365,9 @@ def set_security_headers(resp):
 
 @app.route('/api/institutions/validate-code', methods=['POST'])
 def validate_institution_code():
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({'message': 'Invalid JSON body'}), 400
     institution_code = (data.get('institutionCode') or '').strip().upper()
     if not institution_code:
         return jsonify({'message': 'Institution code is required'}), 400
@@ -295,28 +388,41 @@ def validate_institution_code():
 @app.route('/api/bootstrap/status', methods=['GET'])
 def bootstrap_status():
     expected_token = os.environ.get('SUPERADMIN_BOOTSTRAP_TOKEN')
+    needs_bootstrap = _superadmin_exists_safe() is False
     return jsonify({
-        'needs_superadmin_bootstrap': User.query.filter_by(is_superadmin=True).count() == 0,
-        'bootstrap_token_required': bool(expected_token),
+        'needs_superadmin_bootstrap': needs_bootstrap,
+        'bootstrap_token_required': bool((expected_token or '').strip()),
     }), 200
 
 
 @app.route('/api/bootstrap/superadmin', methods=['POST'])
 def bootstrap_superadmin():
-    if User.query.filter_by(is_superadmin=True).count() > 0:
-        return jsonify({'message': 'Superadmin already exists'}), 409
+    try:
+        if _superadmin_exists():
+            return jsonify({'message': 'Superadmin already exists'}), 409
+    except SQLAlchemyError as err:
+        print(f"⚠️ Bootstrap check failed, attempting schema repair: {err}")
+        try:
+            db.session.rollback()
+            _repair_schema_for_bootstrap()
+            if _superadmin_exists():
+                return jsonify({'message': 'Superadmin already exists'}), 409
+        except SQLAlchemyError:
+            return jsonify({'message': 'Bootstrap unavailable due to database schema mismatch. Contact support.'}), 503
 
     data = request.get_json() or {}
     username = (data.get('username') or '').strip()
     password = data.get('password') or ''
-    bootstrap_token = data.get('bootstrapToken')
-    expected_token = os.environ.get('SUPERADMIN_BOOTSTRAP_TOKEN')
+    bootstrap_token = (data.get('bootstrapToken') or '').strip()
+    expected_token = (os.environ.get('SUPERADMIN_BOOTSTRAP_TOKEN') or '').strip()
 
-    if expected_token and bootstrap_token != expected_token:
+    if expected_token and not hmac.compare_digest(bootstrap_token, expected_token):
         return jsonify({'message': 'Invalid bootstrap token'}), 403
 
     if not username or not password:
         return jsonify({'message': 'Username and password are required'}), 400
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,80}", username):
+        return jsonify({'message': 'Username must be 3-80 chars and use letters, numbers, ., _, or -'}), 400
     if len(username) < 3:
         return jsonify({'message': 'Username must be at least 3 characters'}), 400
     if len(password) < 8:
@@ -324,10 +430,15 @@ def bootstrap_superadmin():
     if User.query.filter_by(username=username).first():
         return jsonify({'message': 'Username already exists'}), 400
 
-    user = User(username=username, is_superadmin=True, is_admin=True, institution_id=None)
+    user = User(username=username, is_superadmin=True, is_admin=True, institution_id=None, is_active=True)
     user.set_password(password)
-    db.session.add(user)
-    db.session.commit()
+    try:
+        db.session.add(user)
+        db.session.commit()
+    except SQLAlchemyError as err:
+        db.session.rollback()
+        print(f"⚠️ Bootstrap create failed: {err}")
+        return jsonify({'message': 'Could not create superadmin due to database error'}), 500
 
     return jsonify({
         'id': user.id,
@@ -847,17 +958,28 @@ def get_quiz_config():
 
 @app.route('/api/health', methods=['GET'])
 def health():
+    db_status = "ok"
+    needs_bootstrap = False
+    try:
+        needs_bootstrap = _superadmin_exists_safe()
+        needs_bootstrap = not needs_bootstrap
+    except Exception as err:
+        db_status = "degraded"
+        print(f"⚠️ Health check warning: {err}")
+
     return jsonify({
         'status': 'ok',
+        'db_status': db_status,
         'time': datetime.utcnow().isoformat(),
         'multi_tenant_enabled': True,
-        'needs_superadmin_bootstrap': User.query.filter_by(is_superadmin=True).count() == 0,
+        'needs_superadmin_bootstrap': needs_bootstrap,
     }), 200
 
 
 with app.app_context():
     try:
         db.create_all()
+        _repair_schema_for_bootstrap()
         print("✅ Database tables initialized successfully")
     except Exception as e:
         print(f"⚠️ Database initialization warning: {e}")
