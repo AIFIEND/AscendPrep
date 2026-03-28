@@ -234,33 +234,15 @@ def _repair_schema_for_bootstrap():
 
 
 def _superadmin_exists() -> bool:
-    inspector = inspect(db.engine)
-    if "user" not in set(inspector.get_table_names()):
-        return False
-
-    user_columns = {c["name"] for c in inspector.get_columns("user")}
-    if "is_superadmin" in user_columns:
-        column_name = "is_superadmin"
-    elif "is_super_admin" in user_columns:
-        column_name = "is_super_admin"
-    else:
-        return False
-
-    count = db.session.execute(
-        text(f'SELECT COUNT(1) FROM "user" WHERE COALESCE({column_name}, FALSE) = TRUE')
-    ).scalar()
-    return int(count or 0) > 0
+    return User.query.filter_by(is_superadmin=True).count() > 0
 
 
 def _superadmin_exists_safe() -> bool:
     try:
-        db.session.rollback()
-        _repair_schema_for_bootstrap()
         return _superadmin_exists()
     except SQLAlchemyError as err:
         print(f"⚠️ Database query warning while checking superadmin status: {err}")
         try:
-            db.session.rollback()
             _repair_schema_for_bootstrap()
             return _superadmin_exists()
         except SQLAlchemyError as repair_err:
@@ -403,7 +385,6 @@ def bootstrap_superadmin():
     except SQLAlchemyError as err:
         print(f"⚠️ Bootstrap check failed, attempting schema repair: {err}")
         try:
-            db.session.rollback()
             _repair_schema_for_bootstrap()
             if _superadmin_exists():
                 return jsonify({'message': 'Superadmin already exists'}), 409
