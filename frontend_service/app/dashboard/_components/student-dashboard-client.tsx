@@ -19,12 +19,23 @@ type Summary = {
   daily_goal: { goal_questions: number; answered_today: number; remaining: number; is_complete: boolean };
   mastery: { category: string; percent: number; answered: number }[];
   badges: { key: string; title: string; description: string }[];
+  xp_to_next_level: number;
+  quizzes_completed: number;
+};
+
+type FocusArea = {
+  category: string;
+  lifetime_accuracy: number;
+  recent_accuracy: number | null;
+  trend: string;
+  suggested_question_count: number;
 };
 
 export function StudentDashboardClient() {
   const { data: session } = useSession();
   const token = session?.user?.backendToken;
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [focusAreas, setFocusAreas] = useState<FocusArea[]>([]);
 
   useEffect(() => {
     if (!token) return;
@@ -32,6 +43,10 @@ export function StudentDashboardClient() {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     }).then(setSummary).catch(() => setSummary(null));
+    getJson<{ focus_areas: FocusArea[] }>("/api/user/focus-areas", {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    }).then((data) => setFocusAreas(data.focus_areas ?? [])).catch(() => setFocusAreas([]));
   }, [token]);
 
   const recentAverage = useMemo(() => {
@@ -49,7 +64,7 @@ export function StudentDashboardClient() {
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       <Card>
         <CardHeader><CardTitle>Level {summary.level}</CardTitle><CardDescription>{summary.xp} XP total</CardDescription></CardHeader>
-        <CardContent className="text-sm text-muted-foreground">Keep accuracy high for bonus XP.</CardContent>
+        <CardContent className="text-sm text-muted-foreground">{summary.xp_to_next_level} XP to next level.</CardContent>
       </Card>
       <Card>
         <CardHeader><CardTitle>{summary.current_streak_days}-day streak</CardTitle><CardDescription>Best: {summary.best_streak_days} days</CardDescription></CardHeader>
@@ -61,7 +76,29 @@ export function StudentDashboardClient() {
       </Card>
       <Card>
         <CardHeader><CardTitle>Recent performance</CardTitle><CardDescription>{recentAverage ?? "--"}% avg over latest attempts</CardDescription></CardHeader>
-        <CardContent className="text-sm text-muted-foreground">Overall accuracy: {summary.accuracy_percent}%.</CardContent>
+        <CardContent className="text-sm text-muted-foreground">Overall accuracy: {summary.accuracy_percent}%. Quizzes completed: {summary.quizzes_completed}.</CardContent>
+      </Card>
+
+      <Card className="md:col-span-2">
+        <CardHeader><CardTitle>Focus Areas</CardTitle><CardDescription>Smart weakness targeting from your quiz history.</CardDescription></CardHeader>
+        <CardContent className="space-y-2">
+          {focusAreas.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Complete a few quizzes to unlock targeted recommendations.</p>
+          ) : (
+            focusAreas.map((item) => (
+              <div key={item.category} className="rounded border p-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-medium">{item.category}</span>
+                  <span>{item.lifetime_accuracy}% mastery</span>
+                </div>
+                <p className="text-xs text-muted-foreground">Trend: {item.trend}. Suggested practice: {item.suggested_question_count} questions.</p>
+              </div>
+            ))
+          )}
+          <Button asChild size="sm">
+            <Link href="/start-quiz?mode=targeted">Start targeted quiz</Link>
+          </Button>
+        </CardContent>
       </Card>
 
       <Card className="md:col-span-2">

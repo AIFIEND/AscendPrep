@@ -28,9 +28,13 @@ def _apply_sql_file(path: Path):
     sql = path.read_text()
     if not sql.strip():
         return
-    db.session.execute(text(sql))
-    db.session.execute(text("INSERT INTO schema_migrations (version) VALUES (:v)"), {"v": path.name})
-    db.session.commit()
+    try:
+        db.session.execute(text(sql))
+        db.session.execute(text("INSERT INTO schema_migrations (version) VALUES (:v)"), {"v": path.name})
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
 
 
 def run_migrations():

@@ -84,7 +84,7 @@ export function SuperadminSetupCard() {
         <CardHeader>
           <CardTitle>One-time platform setup</CardTitle>
           <CardDescription>
-            Create the first superadmin account once. After login, create institutions and share their registration codes.
+            Create the first superadmin account once. After login, create institutions/programs and share registration codes with advisors, teachers, and learners.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

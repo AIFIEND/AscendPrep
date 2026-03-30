@@ -7,6 +7,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -33,6 +35,19 @@ type AdminSummary = {
     average_score: number | null;
   }>;
   category_performance: Record<string, { correct: number; total: number }>;
+  leaderboard?: Array<{ username: string; quizzes_taken: number; average_score: number | null }>;
+  recently_active_users?: Array<{ username: string; last_active: string | null }>;
+  inactive_users?: Array<{ username: string; is_active: boolean; last_active: string | null }>;
+};
+
+type Assignment = {
+  id: number;
+  title: string;
+  question_count: number;
+  assigned_count: number;
+  completed_count: number;
+  average_score: number | null;
+  due_date: string | null;
 };
 
 export const AdminDashboardClient = () => {
@@ -41,6 +56,9 @@ export const AdminDashboardClient = () => {
   const [error, setError] = useState<null | "AccessDenied" | "LoadFailed">(null);
   const [actionError, setActionError] = useState<string>("");
   const [actionSuccess, setActionSuccess] = useState<string>("");
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [assignmentTitle, setAssignmentTitle] = useState("");
+  const [assignmentCount, setAssignmentCount] = useState(20);
 
   useEffect(() => {
     if (state || !session?.user?.backendToken) return;
@@ -53,6 +71,10 @@ export const AdminDashboardClient = () => {
           },
         });
         setState(resp);
+        const assignmentResp = await getJson<Assignment[]>("/api/admin/assignments", {
+          headers: { Authorization: `Bearer ${session.user.backendToken}` },
+        });
+        setAssignments(assignmentResp);
       } catch (e: unknown) {
         const status = e instanceof ApiError ? e.status : undefined;
         if (status === 401 || status === 403) setError("AccessDenied");
@@ -86,6 +108,7 @@ export const AdminDashboardClient = () => {
 
   const { totals, users, institution } = state;
   const token = session?.user?.backendToken;
+  const leaderboardRows = (state.leaderboard ?? []).slice(0, 5);
 
   const setStudentStatus = async (userId: number, isActive: boolean) => {
     if (!token) return;
@@ -104,6 +127,33 @@ export const AdminDashboardClient = () => {
       setActionSuccess(`User ${isActive ? "reactivated" : "deactivated"} successfully.`);
     } catch (e: unknown) {
       setActionError(e instanceof ApiError ? e.message : "Could not update user status.");
+    }
+  };
+
+  const createAssignment = async () => {
+    if (!token || !assignmentTitle.trim()) return;
+    setActionError("");
+    try {
+      await apiFetch("/api/admin/assignments", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          title: assignmentTitle.trim(),
+          question_count: assignmentCount,
+          assign_to_all: true,
+          categories: [],
+          difficulties: [],
+          mode: "practice",
+        }),
+      });
+      const refreshed = await getJson<Assignment[]>("/api/admin/assignments", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setAssignments(refreshed);
+      setAssignmentTitle("");
+      setActionSuccess("Assignment created successfully.");
+    } catch (e: unknown) {
+      setActionError(e instanceof ApiError ? e.message : "Could not create assignment.");
     }
   };
 
@@ -132,6 +182,21 @@ export const AdminDashboardClient = () => {
         <CardContent className="flex items-center justify-between">
           <div className="font-mono text-lg tracking-wider">{institution.registration_code}</div>
           <Badge variant="secondary">Institution code</Badge>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Institution leaderboard</CardTitle>
+          <CardDescription>Most engaged learners by quiz activity and scores.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {leaderboardRows.map((row, idx) => (
+            <div key={row.username} className="flex items-center justify-between rounded border p-2 text-sm">
+              <span>#{idx + 1} {row.username}</span>
+              <span>{row.quizzes_taken} quizzes · {row.average_score?.toFixed(1) ?? "—"}%</span>
+            </div>
+          ))}
         </CardContent>
       </Card>
 
@@ -207,6 +272,37 @@ export const AdminDashboardClient = () => {
               ))}
             </TableBody>
           </Table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Assignments</CardTitle>
+          <CardDescription>Create and track practice assignments for your institution.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="space-y-1 md:col-span-2">
+              <Label>Title</Label>
+              <Input value={assignmentTitle} onChange={(e) => setAssignmentTitle(e.target.value)} placeholder="Week 3 Marketing Review" />
+            </div>
+            <div className="space-y-1">
+              <Label>Question count</Label>
+              <Input type="number" min={5} max={100} value={assignmentCount} onChange={(e) => setAssignmentCount(Number(e.target.value || 20))} />
+            </div>
+          </div>
+          <Button onClick={createAssignment}>Create assignment</Button>
+          <div className="space-y-2">
+            {assignments.map((assignment) => (
+              <div key={assignment.id} className="rounded border p-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium">{assignment.title}</span>
+                  <span>{assignment.completed_count}/{assignment.assigned_count} completed</span>
+                </div>
+                <p className="text-muted-foreground">Avg score: {assignment.average_score?.toFixed(1) ?? "—"} · Questions: {assignment.question_count}</p>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
 

@@ -3,10 +3,12 @@ import re
 import hmac
 import hashlib
 import secrets
+import csv
+import io
 from datetime import datetime, timedelta, date
 import jwt
 from functools import wraps
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, make_response
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
@@ -217,6 +219,7 @@ class QuizAttempt(db.Model):
     total_questions = db.Column(db.Integer, nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    assignment_id = db.Column(db.Integer, db.ForeignKey('assignment.id'), nullable=True, index=True)
     question_ids = db.Column(db.JSON, nullable=False)
     answers = db.Column(db.JSON, default=dict, nullable=False)
     is_complete = db.Column(db.Boolean, default=False, nullable=False)
@@ -230,6 +233,7 @@ class QuizAttempt(db.Model):
             'total_questions': self.total_questions,
             'timestamp': self.timestamp.isoformat(),
             'user_id': self.user_id,
+            'assignment_id': self.assignment_id,
             'question_ids': self.question_ids,
             'answers': self.answers,
             'is_complete': self.is_complete,
@@ -237,99 +241,35 @@ class QuizAttempt(db.Model):
         }
 
 
+class Assignment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    institution_id = db.Column(db.Integer, db.ForeignKey("institution.id"), nullable=False, index=True)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    title = db.Column(db.String(180), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    categories = db.Column(db.JSON, nullable=False, default=list)
+    difficulties = db.Column(db.JSON, nullable=False, default=list)
+    question_count = db.Column(db.Integer, nullable=False, default=20)
+    due_date = db.Column(db.DateTime, nullable=True)
+    time_limit_minutes = db.Column(db.Integer, nullable=True)
+    mode = db.Column(db.String(20), nullable=False, default="practice")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+
+
+class AssignmentRecipient(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    assignment_id = db.Column(db.Integer, db.ForeignKey("assignment.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    assigned_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("assignment_id", "user_id", name="uq_assignment_recipient"),
+    )
+
+
 def _superadmin_exists() -> bool:
     return User.query.filter_by(is_superadmin=True).count() > 0
-
-
-BADGE_RULES = {
-    "first_session": ("First Session", "Complete your first practice session."),
-    "ten_correct_session": ("Sharp Focus", "Answer at least 10 questions correctly in one session."),
-    "streak_7": ("7-Day Streak", "Practice on 7 consecutive days."),
-    "hundred_questions": ("Century Mark", "Answer 100 questions in total."),
-    "mastery_80": ("Category Mastery", "Reach at least 80% mastery in any category (min 20 answered)."),
-}
-
-
-def _normalize_access_code(raw_code: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9]", "", (raw_code or "").upper())
-    return cleaned
-
-
-def _access_code_hash(raw_code: str) -> str:
-    return hashlib.sha256(_normalize_access_code(raw_code).encode("utf-8")).hexdigest()
-
-
-def _generate_plain_access_code() -> str:
-    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-    chunks = ["".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(3)]
-    return "-".join(chunks)
-
-
-def _issue_unique_access_code() -> tuple[str, str]:
-    for _ in range(25):
-        plain = _generate_plain_access_code()
-        code_hash = _access_code_hash(plain)
-        if AccessCode.query.filter_by(code_hash=code_hash).first() is None:
-            return plain, code_hash
-    raise RuntimeError("Could not generate unique access code")
-
-
-def _find_access_code(raw_code: str):
-    normalized = _normalize_access_code(raw_code)
-    if len(normalized) < 8:
-        return None, "Access code format is invalid."
-    code_hash = _access_code_hash(normalized)
-    code = AccessCode.query.filter_by(code_hash=code_hash).first()
-    if not code:
-        return None, "Access code is invalid."
-    if not code.is_active:
-        return None, "Access code is inactive."
-    if code.expires_at and code.expires_at < datetime.utcnow():
-        return None, "Access code has expired."
-    if code.use_count >= code.max_uses:
-        return None, "Access code has already been used."
-    return code, None
-
-
-def _get_or_create_gamification(user_id: int) -> UserGamification:
-    state = UserGamification.query.filter_by(user_id=user_id).first()
-    if not state:
-        state = UserGamification(user_id=user_id)
-        db.session.add(state)
-        db.session.flush()
-    return state
-
-
-def _level_for_xp(xp: int) -> int:
-    return max(1, (xp // 100) + 1)
-
-
-def _unlock_badge(user_id: int, badge_key: str):
-    if badge_key not in BADGE_RULES:
-        return None
-    existing = UserBadge.query.filter_by(user_id=user_id, badge_key=badge_key).first()
-    if existing:
-        return None
-    title, description = BADGE_RULES[badge_key]
-    badge = UserBadge(user_id=user_id, badge_key=badge_key, title=title, description=description)
-    db.session.add(badge)
-    return badge
-
-
-def _today_question_goal_progress(user_id: int, goal: int = 20):
-    start_of_day = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    completed_today = QuizAttempt.query.filter(
-        QuizAttempt.user_id == user_id,
-        QuizAttempt.is_complete == True,
-        QuizAttempt.timestamp >= start_of_day
-    ).all()
-    answered = sum(a.total_questions for a in completed_today)
-    return {
-        "goal_questions": goal,
-        "answered_today": answered,
-        "remaining": max(goal - answered, 0),
-        "is_complete": answered >= goal,
-    }
 
 
 BADGE_RULES = {
@@ -441,6 +381,76 @@ def generate_registration_code() -> str:
     raise RuntimeError("Could not generate unique registration code")
 
 
+def _normalize_institution_code(raw_code: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", (raw_code or "").upper())
+
+
+def _json_error(message: str, status: int = 400, code: str | None = None, details: dict | None = None):
+    payload = {"message": message}
+    if code:
+        payload["code"] = code
+    if details:
+        payload["details"] = details
+    return jsonify(payload), status
+
+
+def _compute_category_metrics(user_id: int, max_recent_quizzes: int = 10):
+    attempts = QuizAttempt.query.filter_by(user_id=user_id, is_complete=True).order_by(QuizAttempt.timestamp.desc()).all()
+    lifetime = defaultdict(lambda: {"correct": 0, "total": 0})
+    recent = defaultdict(lambda: {"correct": 0, "total": 0})
+
+    for idx, attempt in enumerate(attempts):
+        if not attempt.results_by_category:
+            continue
+        for category, result in attempt.results_by_category.items():
+            correct = int(result.get("correct", 0))
+            total = int(result.get("total", 0))
+            lifetime[category]["correct"] += correct
+            lifetime[category]["total"] += total
+            if idx < max_recent_quizzes:
+                recent[category]["correct"] += correct
+                recent[category]["total"] += total
+
+    rows = []
+    for category, totals in lifetime.items():
+        lifetime_pct = round((totals["correct"] / totals["total"]) * 100, 1) if totals["total"] else 0
+        recent_totals = recent.get(category, {"correct": 0, "total": 0})
+        recent_pct = round((recent_totals["correct"] / recent_totals["total"]) * 100, 1) if recent_totals["total"] else None
+
+        if totals["total"] < 12:
+            band = "developing"
+            reason = "Need more question volume for a stable signal."
+        elif lifetime_pct < 65:
+            band = "weak"
+            reason = "Accuracy is below 65%."
+        elif lifetime_pct < 80:
+            band = "developing"
+            reason = "Accuracy is improving but not yet strong."
+        else:
+            band = "strong"
+            reason = "Consistently strong accuracy."
+
+        if recent_pct is None:
+            trend = "not_enough_recent_data"
+        elif recent_pct >= lifetime_pct + 5:
+            trend = "improving"
+        elif recent_pct <= lifetime_pct - 5:
+            trend = "declining"
+        else:
+            trend = "stable"
+
+        rows.append({
+            "category": category,
+            "lifetime_accuracy": lifetime_pct,
+            "recent_accuracy": recent_pct,
+            "total_answered": totals["total"],
+            "classification": band,
+            "trend": trend,
+            "reason": reason,
+        })
+    return sorted(rows, key=lambda x: (x["classification"] != "weak", x["lifetime_accuracy"]))
+
+
 def role_for_user(user: User) -> str:
     if user.is_superadmin:
         return "superadmin"
@@ -486,6 +496,10 @@ def token_required(f):
                 return jsonify({"message": "User not found"}), 401
             if not current_user.is_active:
                 return jsonify({"message": "Account inactive"}), 403
+            if current_user.account_type == "institution" and current_user.institution_id:
+                institution = Institution.query.get(current_user.institution_id)
+                if not institution or not institution.is_active:
+                    return jsonify({"message": "Your institution is inactive."}), 403
 
         except jwt.ExpiredSignatureError:
             return jsonify({"message": "Token expired"}), 401
@@ -533,7 +547,7 @@ def validate_institution_code():
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify({'message': 'Invalid JSON body'}), 400
-    institution_code = (data.get('institutionCode') or '').strip().upper()
+    institution_code = _normalize_institution_code(data.get('institutionCode') or '')
     if not institution_code:
         return jsonify({'message': 'Institution code is required'}), 400
 
@@ -541,7 +555,7 @@ def validate_institution_code():
     if not institution:
         return jsonify({'message': 'Institution code not found'}), 404
     if not institution.is_active:
-        return jsonify({'message': 'Institution is inactive. Contact your counselor.'}), 403
+        return jsonify({'message': 'Institution is inactive. Contact your advisor or teacher.'}), 403
 
     return jsonify({
         'valid': True,
@@ -632,38 +646,40 @@ def bootstrap_superadmin():
 
 @app.route('/api/register', methods=['POST'])
 def register_user():
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return _json_error("Invalid JSON body", 400, "invalid_json")
     username = (data.get('username') or '').strip()
     password = data.get('password') or ''
     account_type = (data.get('accountType') or 'institution').strip().lower()
-    institution_code = (data.get('institutionCode') or '').strip().upper()
+    institution_code = _normalize_institution_code(data.get('institutionCode') or '')
     access_code_input = (data.get('accessCode') or '').strip()
 
     if account_type not in {'institution', 'individual'}:
-        return jsonify({'message': 'accountType must be institution or individual'}), 400
+        return _json_error('accountType must be institution or individual', 400, "invalid_account_type")
     if not username or not password:
-        return jsonify({'message': 'Username and password are required'}), 400
+        return _json_error('Username and password are required', 400, "missing_credentials")
     if len(username) < 3:
-        return jsonify({'message': 'Username must be at least 3 characters'}), 400
+        return _json_error('Username must be at least 3 characters', 400, "username_too_short")
     if len(password) < 8:
-        return jsonify({'message': 'Password must be at least 8 characters'}), 400
+        return _json_error('Password must be at least 8 characters', 400, "password_too_short")
     if User.query.filter_by(username=username).first():
-        return jsonify({'message': 'User already exists'}), 400
+        return _json_error('User already exists', 409, "username_taken")
 
     institution = None
     redeemed_code = None
     if account_type == 'institution':
         if not institution_code:
-            return jsonify({'message': 'Institution code is required for institution accounts.'}), 400
+            return _json_error('Institution code is required for institution accounts.', 400, "institution_code_required")
         institution = Institution.query.filter_by(registration_code=institution_code, is_active=True).first()
         if not institution:
-            return jsonify({'message': 'Invalid institution code. Ask your counselor for a valid code.'}), 400
+            return _json_error('Invalid institution code. Ask your advisor or teacher for a valid code.', 400, "invalid_institution_code")
     else:
         if not access_code_input:
-            return jsonify({'message': 'Access code is required for individual accounts.'}), 400
+            return _json_error('Access code is required for individual accounts.', 400, "access_code_required")
         redeemed_code, code_error = _find_access_code(access_code_input)
         if code_error:
-            return jsonify({'message': code_error}), 400
+            return _json_error(code_error, 400, "invalid_access_code")
 
     user = User(
         username=username,
@@ -674,15 +690,18 @@ def register_user():
     )
     user.set_password(password)
 
-    db.session.add(user)
-    db.session.flush()
-
-    if redeemed_code:
-        redeemed_code.use_count += 1
-        redeemed_code.redeemed_by_user_id = user.id
-        redeemed_code.redeemed_at = datetime.utcnow()
-
-    db.session.commit()
+    try:
+        db.session.add(user)
+        db.session.flush()
+        if redeemed_code:
+            redeemed_code.use_count += 1
+            redeemed_code.redeemed_by_user_id = user.id
+            redeemed_code.redeemed_at = datetime.utcnow()
+        db.session.commit()
+    except SQLAlchemyError as err:
+        db.session.rollback()
+        print(f"⚠️ Registration transaction failed: {err}")
+        return _json_error("Registration failed due to a database error.", 500, "registration_db_error")
 
     return jsonify({
         'id': user.id,
@@ -1067,7 +1086,223 @@ def institution_admin_summary(current_user):
         },
         'users': activity,
         'category_performance': category_totals,
+        'leaderboard': [
+            row for row in activity if not row["is_admin"]
+        ][:10],
+        'recently_active_users': [row for row in activity if row["last_active"]][:5],
+        'inactive_users': [row for row in activity if not row["is_active"] or not row["last_active"]][:15],
     }), 200
+
+
+@app.route('/api/user/focus-areas', methods=['GET'])
+@token_required
+def get_user_focus_areas(current_user):
+    metrics = _compute_category_metrics(current_user.id)
+    weak = [m for m in metrics if m["classification"] == "weak"][:5]
+    for item in weak:
+        item["recommended_action"] = "Complete a targeted practice set and review explanations."
+        item["suggested_question_count"] = 12 if item["total_answered"] < 40 else 8
+    return jsonify({
+        "focus_areas": weak,
+        "summary": {
+            "total_categories_evaluated": len(metrics),
+            "weak_categories": len([m for m in metrics if m["classification"] == "weak"]),
+        },
+    }), 200
+
+
+@app.route('/api/leaderboard/institution', methods=['GET'])
+@token_required
+def institution_leaderboard(current_user):
+    institution_id = current_user.institution_id
+    if not institution_id:
+        return jsonify({"rows": []}), 200
+    users = User.query.filter_by(institution_id=institution_id, is_superadmin=False, is_active=True).all()
+    rows = []
+    for user in users:
+        state = UserGamification.query.filter_by(user_id=user.id).first()
+        rows.append({
+            "user_id": user.id,
+            "username": user.username,
+            "xp": state.xp if state else 0,
+            "level": _level_for_xp(state.xp) if state else 1,
+            "streak": state.current_streak_days if state else 0,
+            "is_admin": user.is_admin,
+        })
+    rows.sort(key=lambda x: (x["xp"], x["streak"]), reverse=True)
+    return jsonify({"rows": rows[:20]}), 200
+
+
+@app.route('/api/admin/assignments', methods=['POST'])
+@institution_admin_required
+def create_assignment(current_user):
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or "").strip()
+    if not title:
+        return _json_error("title is required", 400, "title_required")
+    categories = data.get("categories") or []
+    difficulties = data.get("difficulties") or []
+    question_count = int(data.get("question_count") or 20)
+    due_date_raw = (data.get("due_date") or "").strip()
+    due_date = datetime.fromisoformat(due_date_raw) if due_date_raw else None
+    selected_user_ids = data.get("selected_user_ids") or []
+    assign_to_all = bool(data.get("assign_to_all", True))
+
+    assignment = Assignment(
+        institution_id=current_user.institution_id,
+        created_by_user_id=current_user.id,
+        title=title,
+        description=(data.get("description") or "").strip() or None,
+        categories=categories,
+        difficulties=difficulties,
+        question_count=max(5, min(question_count, 100)),
+        due_date=due_date,
+        time_limit_minutes=data.get("time_limit_minutes"),
+        mode=(data.get("mode") or "practice").strip(),
+    )
+    db.session.add(assignment)
+    db.session.flush()
+    if assign_to_all:
+        recipients = User.query.filter_by(institution_id=current_user.institution_id, is_admin=False, is_superadmin=False).all()
+        selected_user_ids = [u.id for u in recipients]
+    for user_id in selected_user_ids:
+        db.session.add(AssignmentRecipient(assignment_id=assignment.id, user_id=int(user_id)))
+    db.session.commit()
+    return jsonify({"id": assignment.id, "assigned_count": len(selected_user_ids)}), 201
+
+
+@app.route('/api/admin/assignments', methods=['GET'])
+@institution_admin_required
+def list_assignments(current_user):
+    assignments = Assignment.query.filter_by(institution_id=current_user.institution_id).order_by(Assignment.created_at.desc()).all()
+    payload = []
+    for assignment in assignments:
+        recipients = AssignmentRecipient.query.filter_by(assignment_id=assignment.id).all()
+        recipient_ids = [r.user_id for r in recipients]
+        completed_attempts = QuizAttempt.query.filter(
+            QuizAttempt.assignment_id == assignment.id,
+            QuizAttempt.is_complete == True
+        ).all()
+        completion_map = {a.user_id: a for a in completed_attempts}
+        missing = [uid for uid in recipient_ids if uid not in completion_map]
+        payload.append({
+            "id": assignment.id,
+            "title": assignment.title,
+            "mode": assignment.mode,
+            "due_date": assignment.due_date.isoformat() if assignment.due_date else None,
+            "question_count": assignment.question_count,
+            "assigned_count": len(recipient_ids),
+            "completed_count": len(completed_attempts),
+            "missing_count": len(missing),
+            "average_score": round(sum(a.score for a in completed_attempts if a.score is not None) / len(completed_attempts), 1) if completed_attempts else None,
+        })
+    return jsonify(payload), 200
+
+
+@app.route('/api/admin/reports/assignment-completion.csv', methods=['GET'])
+@institution_admin_required
+def export_assignment_completion(current_user):
+    assignments = Assignment.query.filter_by(institution_id=current_user.institution_id).all()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["assignment_id", "title", "assigned_learners", "completed_learners", "average_score"])
+    for assignment in assignments:
+        recipients = AssignmentRecipient.query.filter_by(assignment_id=assignment.id).count()
+        completed = QuizAttempt.query.filter_by(assignment_id=assignment.id, is_complete=True).all()
+        avg = round(sum(a.score for a in completed if a.score is not None) / len(completed), 1) if completed else ""
+        writer.writerow([assignment.id, assignment.title, recipients, len(completed), avg])
+    response = make_response(output.getvalue())
+    response.headers["Content-Type"] = "text/csv"
+    response.headers["Content-Disposition"] = "attachment; filename=assignment_completion.csv"
+    return response
+
+
+@app.route('/api/quiz/start-targeted', methods=['POST'])
+@token_required
+def start_targeted_quiz(current_user):
+    data = request.get_json(silent=True) or {}
+    num_questions = int(data.get("numQuestions", 12))
+    num_questions = min(max(num_questions, 5), 40)
+    difficulty = data.get("difficulty")
+    metrics = _compute_category_metrics(current_user.id)
+    weak_categories = [m["category"] for m in metrics if m["classification"] == "weak"]
+    developing = [m["category"] for m in metrics if m["classification"] == "developing"]
+    if not weak_categories and metrics:
+        weak_categories = [metrics[0]["category"]]
+
+    recent_attempts = QuizAttempt.query.filter_by(user_id=current_user.id).order_by(QuizAttempt.timestamp.desc()).limit(5).all()
+    recent_qids = set()
+    for attempt in recent_attempts:
+        recent_qids.update(attempt.question_ids or [])
+
+    pool = Question.query
+    if difficulty:
+        pool = pool.filter_by(difficulty=difficulty)
+    prioritized_categories = weak_categories + developing[:2]
+    if prioritized_categories:
+        pool = pool.filter(Question.category.in_(prioritized_categories))
+    questions = [q for q in pool.all() if q.id not in recent_qids]
+    if len(questions) < num_questions:
+        backup_q = Question.query
+        if difficulty:
+            backup_q = backup_q.filter_by(difficulty=difficulty)
+        questions = list({q.id: q for q in (questions + backup_q.all())}.values())
+    random.shuffle(questions)
+    selected = questions[:num_questions]
+    if not selected:
+        return _json_error("No questions available for targeted quiz.", 400, "no_questions")
+
+    new_attempt = QuizAttempt(
+        test_name='Targeted Focus Quiz',
+        total_questions=len(selected),
+        user_id=current_user.id,
+        question_ids=[q.id for q in selected],
+        answers={},
+        is_complete=False
+    )
+    db.session.add(new_attempt)
+    db.session.commit()
+    return jsonify({
+        "attemptId": new_attempt.id,
+        "questions": [q.to_dict() for q in selected],
+        "targeted_categories": weak_categories[:3],
+    }), 200
+
+
+@app.route('/api/quiz/start-assignment', methods=['POST'])
+@token_required
+def start_assignment_quiz(current_user):
+    data = request.get_json(silent=True) or {}
+    assignment_id = data.get("assignmentId")
+    assignment = Assignment.query.get(assignment_id)
+    if not assignment or not assignment.is_active:
+        return _json_error("Assignment not found.", 404, "assignment_not_found")
+    recipient = AssignmentRecipient.query.filter_by(assignment_id=assignment.id, user_id=current_user.id).first()
+    if not recipient:
+        return _json_error("You are not assigned to this assignment.", 403, "assignment_forbidden")
+
+    q = Question.query
+    if assignment.categories:
+        q = q.filter(Question.category.in_(assignment.categories))
+    if assignment.difficulties:
+        q = q.filter(Question.difficulty.in_(assignment.difficulties))
+    selected = q.all()
+    random.shuffle(selected)
+    selected = selected[:assignment.question_count]
+    if not selected:
+        return _json_error("No questions available for this assignment.", 400, "assignment_no_questions")
+    attempt = QuizAttempt(
+        test_name=f"Assignment: {assignment.title}",
+        total_questions=len(selected),
+        user_id=current_user.id,
+        assignment_id=assignment.id,
+        question_ids=[item.id for item in selected],
+        answers={},
+        is_complete=False,
+    )
+    db.session.add(attempt)
+    db.session.commit()
+    return jsonify({"attemptId": attempt.id, "questions": [q.to_dict() for q in selected]}), 200
 
 
 @app.route('/api/quiz/start', methods=['POST'])
@@ -1271,6 +1506,38 @@ def get_user_progress(current_user):
     return jsonify({'progress_data': progress_data, 'overall_performance': overall_performance}), 200
 
 
+@app.route('/api/user/analytics', methods=['GET'])
+@token_required
+def get_user_analytics(current_user):
+    period = (request.args.get("period") or "all").strip().lower()
+    now = datetime.utcnow()
+    query = QuizAttempt.query.filter_by(user_id=current_user.id, is_complete=True)
+    if period == "7d":
+        query = query.filter(QuizAttempt.timestamp >= now - timedelta(days=7))
+    elif period == "30d":
+        query = query.filter(QuizAttempt.timestamp >= now - timedelta(days=30))
+    attempts = query.order_by(QuizAttempt.timestamp.desc()).all()
+    scores = [a.score for a in attempts if a.score is not None]
+    totals = sum(a.total_questions for a in attempts)
+    metrics = _compute_category_metrics(current_user.id)
+    weak = [m for m in metrics if m["classification"] == "weak"][:3]
+    strong = [m for m in metrics if m["classification"] == "strong"][:3]
+    readiness = 0
+    if scores:
+        readiness = round((sum(scores) / len(scores)) * 0.7 + min(len(attempts), 20) * 1.5, 1)
+    return jsonify({
+        "period": period,
+        "quizzes_completed": len(attempts),
+        "questions_answered": totals,
+        "overall_accuracy": round(sum(scores) / len(scores), 1) if scores else 0,
+        "recent_scores": scores[:10],
+        "category_mastery": metrics,
+        "weakest_categories": weak,
+        "strongest_categories": strong,
+        "practice_readiness": min(readiness, 100),
+    }), 200
+
+
 @app.route('/api/quiz/answer', methods=['POST'])
 @token_required
 def save_answer(current_user):
@@ -1316,14 +1583,18 @@ def get_user_gamification_summary(current_user):
     mastery.sort(key=lambda x: x['percent'], reverse=True)
 
     badges = UserBadge.query.filter_by(user_id=current_user.id).order_by(UserBadge.unlocked_at.desc()).all()
+    level = _level_for_xp(state.xp)
+    next_level_xp = level * 100
     db.session.commit()
     return jsonify({
         'xp': state.xp,
-        'level': _level_for_xp(state.xp),
+        'level': level,
+        'xp_to_next_level': max(next_level_xp - state.xp, 0),
         'current_streak_days': state.current_streak_days,
         'best_streak_days': state.best_streak_days,
         'accuracy_percent': round((state.total_correct_answers / state.total_questions_answered) * 100, 1) if state.total_questions_answered else 0,
         'total_questions_answered': state.total_questions_answered,
+        'quizzes_completed': QuizAttempt.query.filter_by(user_id=current_user.id, is_complete=True).count(),
         'recent_scores': [a.score for a in attempts if a.score is not None][:5],
         'daily_goal': _today_question_goal_progress(current_user.id),
         'mastery': mastery[:8],

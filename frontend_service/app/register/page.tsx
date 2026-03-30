@@ -27,7 +27,10 @@ export default function RegisterPage() {
   const [isValidatingCode, setIsValidatingCode] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [codeErrorMsg, setCodeErrorMsg] = useState<string | null>(null);
+  const [validatedInstitutionName, setValidatedInstitutionName] = useState<string | null>(null);
+  const [accessCodeValidated, setAccessCodeValidated] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [successMsg, setSuccessMsg] = useState("");
 
   useEffect(() => {
     if (success) {
@@ -41,15 +44,18 @@ export default function RegisterPage() {
       const normalizedAccessCode = accessCode.trim().toUpperCase();
       if (!normalizedAccessCode) {
         setCodeErrorMsg("Access code is required.");
+        setAccessCodeValidated(false);
         return false;
       }
       setIsValidatingCode(true);
       setCodeErrorMsg(null);
       try {
         await postJson("/api/access-codes/validate", { accessCode: normalizedAccessCode });
+        setAccessCodeValidated(true);
         return true;
       } catch (err) {
         setCodeErrorMsg(err instanceof ApiError ? err.message : "Invalid access code.");
+        setAccessCodeValidated(false);
         return false;
       } finally {
         setIsValidatingCode(false);
@@ -59,6 +65,7 @@ export default function RegisterPage() {
     const normalizedCode = institutionCode.trim().toUpperCase();
     if (!normalizedCode) {
       setCodeErrorMsg("Institution code is required.");
+      setValidatedInstitutionName(null);
       return false;
     }
 
@@ -66,22 +73,18 @@ export default function RegisterPage() {
     setCodeErrorMsg(null);
 
     try {
-      await postJson("/api/institutions/validate-code", {
+      const validation = await postJson<{ institution_name: string }>("/api/institutions/validate-code", {
         institutionCode: normalizedCode,
       });
+      setValidatedInstitutionName(validation.institution_name);
       return true;
     } catch (err: unknown) {
-      if (err instanceof ApiError && err.status === 404) {
-        setCodeErrorMsg(
-          "This preview is connected to an older backend. Update NEXT_PUBLIC_API_URL to the multi-tenant backend."
-        );
-        return false;
-      }
       setCodeErrorMsg(
         err instanceof ApiError
           ? err.message
-          : "Invalid institution code. Ask your counselor for a valid code."
+          : "Invalid institution code. Ask your advisor or teacher for a valid code."
       );
+      setValidatedInstitutionName(null);
       return false;
     } finally {
       setIsValidatingCode(false);
@@ -104,6 +107,11 @@ export default function RegisterPage() {
         institutionCode: institutionCode.trim().toUpperCase(),
         accessCode: accessCode.trim().toUpperCase(),
       });
+      setSuccessMsg(
+        accountType === "institution"
+          ? `Account created and linked to ${validatedInstitutionName ?? "your institution"}.`
+          : "Individual account created successfully. You can now sign in and start practicing."
+      );
       setSuccess(true);
     } catch (err: any) {
       const msg =
@@ -125,18 +133,18 @@ export default function RegisterPage() {
     <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>Create your student account</CardTitle>
+          <CardTitle>Create your learner account</CardTitle>
           <CardDescription>
-            Choose your onboarding path: institution code from your advisor, or individual purchase code.
+            Join through an institution/program code from your advisor/teacher, or use an individual access code.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {success ? (
             <Alert>
-              <AlertTitle>Account created successfully</AlertTitle>
-              <AlertDescription>
-                Your account is now linked to your institution. Redirecting to login so you can start practicing.
-              </AlertDescription>
+                <AlertTitle>Account created successfully</AlertTitle>
+                <AlertDescription>
+                {successMsg} Redirecting to login.
+                </AlertDescription>
               <div className="mt-4">
                 <Button asChild className="w-full">
                   <Link href="/login">Continue to Login</Link>
@@ -175,8 +183,11 @@ export default function RegisterPage() {
                       className={codeErrorMsg ? "border-destructive" : ""}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Use the code your school or chapter advisor provided.
+                      Use the code your institution, department, or program advisor provided.
                     </p>
+                    {validatedInstitutionName && (
+                      <p className="text-xs text-emerald-600">Code verified for: <span className="font-semibold">{validatedInstitutionName}</span></p>
+                    )}
                   </>
                 ) : (
                   <>
@@ -190,6 +201,9 @@ export default function RegisterPage() {
                       className={codeErrorMsg ? "border-destructive" : ""}
                     />
                     <p className="text-xs text-muted-foreground">Enter the purchase code you received after checkout.</p>
+                    {accessCodeValidated && (
+                      <p className="text-xs text-emerald-600">Access code verified. You can finish registration.</p>
+                    )}
                   </>
                 )}
                 {codeErrorMsg && <p className="text-sm text-destructive">{codeErrorMsg}</p>}
