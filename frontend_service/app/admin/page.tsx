@@ -14,7 +14,7 @@ export default async function AdminIndexPage() {
 
   const role = resolveRole(session.user);
   if (role === "superadmin") redirect("/superadmin/dashboard");
-  if (role === "institution_admin") redirect("/admin/dashboard");
+  if (role === "institution_admin") redirect("/admin/institution");
 
   return (
     <AccessDeniedState

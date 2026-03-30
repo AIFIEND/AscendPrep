@@ -253,6 +253,9 @@ class Assignment(db.Model):
     due_date = db.Column(db.DateTime, nullable=True)
     time_limit_minutes = db.Column(db.Integer, nullable=True)
     mode = db.Column(db.String(20), nullable=False, default="practice")
+    shuffle_questions = db.Column(db.Boolean, nullable=False, default=True)
+    show_explanations = db.Column(db.Boolean, nullable=False, default=True)
+    minimum_passing_score = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
 
@@ -1140,13 +1143,80 @@ def create_assignment(current_user):
     title = (data.get("title") or "").strip()
     if not title:
         return _json_error("title is required", 400, "title_required")
+
     categories = data.get("categories") or []
     difficulties = data.get("difficulties") or []
-    question_count = int(data.get("question_count") or 20)
+    if not isinstance(categories, list) or not all(isinstance(item, str) for item in categories):
+        return _json_error("categories must be a list of strings", 400, "invalid_categories")
+    if not isinstance(difficulties, list) or not all(isinstance(item, str) for item in difficulties):
+        return _json_error("difficulties must be a list of strings", 400, "invalid_difficulties")
+
+    valid_categories = [c[0] for c in db.session.query(Question.category).distinct().all()]
+    valid_difficulties = [d[0] for d in db.session.query(Question.difficulty).distinct().all()]
+    if any(category not in valid_categories for category in categories):
+        return _json_error("One or more categories are invalid.", 400, "invalid_categories")
+    if any(diff not in valid_difficulties for diff in difficulties):
+        return _json_error("One or more difficulties are invalid.", 400, "invalid_difficulties")
+
+    try:
+        question_count = int(data.get("question_count") or 20)
+    except (TypeError, ValueError):
+        return _json_error("question_count must be an integer", 400, "invalid_question_count")
+
     due_date_raw = (data.get("due_date") or "").strip()
-    due_date = datetime.fromisoformat(due_date_raw) if due_date_raw else None
+    if due_date_raw:
+        try:
+            due_date = datetime.fromisoformat(due_date_raw)
+        except ValueError:
+            return _json_error("due_date must be a valid ISO datetime string", 400, "invalid_due_date")
+    else:
+        due_date = None
+
+    time_limit_minutes = data.get("time_limit_minutes")
+    if time_limit_minutes in (None, ""):
+        time_limit_minutes = None
+    else:
+        try:
+            time_limit_minutes = int(time_limit_minutes)
+        except (TypeError, ValueError):
+            return _json_error("time_limit_minutes must be an integer", 400, "invalid_time_limit")
+        if time_limit_minutes <= 0:
+            return _json_error("time_limit_minutes must be greater than 0", 400, "invalid_time_limit")
+
+    minimum_passing_score = data.get("minimum_passing_score")
+    if minimum_passing_score in (None, ""):
+        minimum_passing_score = None
+    else:
+        try:
+            minimum_passing_score = int(minimum_passing_score)
+        except (TypeError, ValueError):
+            return _json_error("minimum_passing_score must be an integer", 400, "invalid_minimum_passing_score")
+        if minimum_passing_score < 1 or minimum_passing_score > 100:
+            return _json_error("minimum_passing_score must be between 1 and 100", 400, "invalid_minimum_passing_score")
+
+    mode = (data.get("mode") or "practice").strip().lower()
+    if mode not in ("practice", "test"):
+        return _json_error("mode must be either 'practice' or 'test'", 400, "invalid_mode")
+
     selected_user_ids = data.get("selected_user_ids") or []
     assign_to_all = bool(data.get("assign_to_all", True))
+    if not assign_to_all:
+        if not isinstance(selected_user_ids, list):
+            return _json_error("selected_user_ids must be a list", 400, "invalid_selected_users")
+        try:
+            selected_user_ids = [int(uid) for uid in selected_user_ids]
+        except (TypeError, ValueError):
+            return _json_error("selected_user_ids must contain integers", 400, "invalid_selected_users")
+        allowed_ids = {
+            u.id for u in User.query.filter_by(
+                institution_id=current_user.institution_id,
+                is_admin=False,
+                is_superadmin=False,
+                is_active=True,
+            ).all()
+        }
+        if any(uid not in allowed_ids for uid in selected_user_ids):
+            return _json_error("selected_user_ids must belong to active learners in your institution", 400, "invalid_selected_users")
 
     assignment = Assignment(
         institution_id=current_user.institution_id,
@@ -1157,8 +1227,11 @@ def create_assignment(current_user):
         difficulties=difficulties,
         question_count=max(5, min(question_count, 100)),
         due_date=due_date,
-        time_limit_minutes=data.get("time_limit_minutes"),
-        mode=(data.get("mode") or "practice").strip(),
+        time_limit_minutes=time_limit_minutes,
+        mode=mode,
+        shuffle_questions=bool(data.get("shuffle_questions", True)),
+        show_explanations=bool(data.get("show_explanations", True)),
+        minimum_passing_score=minimum_passing_score,
     )
     db.session.add(assignment)
     db.session.flush()
@@ -1175,6 +1248,12 @@ def create_assignment(current_user):
 @institution_admin_required
 def list_assignments(current_user):
     assignments = Assignment.query.filter_by(institution_id=current_user.institution_id).order_by(Assignment.created_at.desc()).all()
+    all_active_learners = User.query.filter_by(
+        institution_id=current_user.institution_id,
+        is_admin=False,
+        is_superadmin=False,
+        is_active=True,
+    ).count()
     payload = []
     for assignment in assignments:
         recipients = AssignmentRecipient.query.filter_by(assignment_id=assignment.id).all()
@@ -1188,9 +1267,17 @@ def list_assignments(current_user):
         payload.append({
             "id": assignment.id,
             "title": assignment.title,
+            "description": assignment.description,
             "mode": assignment.mode,
             "due_date": assignment.due_date.isoformat() if assignment.due_date else None,
             "question_count": assignment.question_count,
+            "categories": assignment.categories or [],
+            "difficulties": assignment.difficulties or [],
+            "time_limit_minutes": assignment.time_limit_minutes,
+            "assign_to_all": len(recipient_ids) >= all_active_learners,
+            "shuffle_questions": assignment.shuffle_questions if assignment.shuffle_questions is not None else True,
+            "show_explanations": assignment.show_explanations if assignment.show_explanations is not None else True,
+            "minimum_passing_score": assignment.minimum_passing_score,
             "assigned_count": len(recipient_ids),
             "completed_count": len(completed_attempts),
             "missing_count": len(missing),
@@ -1287,7 +1374,10 @@ def start_assignment_quiz(current_user):
     if assignment.difficulties:
         q = q.filter(Question.difficulty.in_(assignment.difficulties))
     selected = q.all()
-    random.shuffle(selected)
+    if assignment.shuffle_questions is not False:
+        random.shuffle(selected)
+    else:
+        selected.sort(key=lambda item: item.id)
     selected = selected[:assignment.question_count]
     if not selected:
         return _json_error("No questions available for this assignment.", 400, "assignment_no_questions")
