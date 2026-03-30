@@ -37,8 +37,23 @@ export default function ResultsPage() {
   const [data, setData] = useState<AttemptResultResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [gamification, setGamification] = useState<any | null>(null);
 
   const attemptId = searchParams.get("attemptId");
+
+  useEffect(() => {
+    if (!attemptId) return;
+    const key = `last-gamification-${attemptId}`;
+    const raw = typeof window !== "undefined" ? window.localStorage.getItem(key) : null;
+    if (raw) {
+      try {
+        setGamification(JSON.parse(raw));
+      } catch {
+        setGamification(null);
+      }
+      window.localStorage.removeItem(key);
+    }
+  }, [attemptId]);
 
   useEffect(() => {
     if (!attemptId) {
@@ -195,6 +210,16 @@ export default function ResultsPage() {
                   <div className="text-sm text-gray-500">Incorrect</div>
                 </div>
               </div>
+              {gamification && (
+                <div className="w-full rounded-lg border bg-muted/20 p-4 space-y-2">
+                  <p className="font-semibold">Session rewards</p>
+                  <p className="text-sm">+{gamification.xp_earned} XP earned • Level {gamification.level}</p>
+                  <p className="text-sm">Streak: {gamification.current_streak_days} day(s)</p>
+                  {gamification.badges_unlocked?.length > 0 && (
+                    <p className="text-sm">Unlocked: {gamification.badges_unlocked.map((b: any) => b.title).join(", ")}</p>
+                  )}
+                </div>
+              )}
 
               <div className="flex flex-col sm:flex-row gap-4 w-full">
                 <Link href="/" className="w-full sm:w-auto">

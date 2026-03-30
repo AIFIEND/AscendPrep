@@ -35,6 +35,9 @@ export default function InstitutionsPage() {
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [accessCodes, setAccessCodes] = useState<any[]>([]);
+  const [codeLabel, setCodeLabel] = useState("");
+  const [codeQuantity, setCodeQuantity] = useState(1);
 
   const loadInstitutions = async () => {
     if (!token) return;
@@ -58,10 +61,51 @@ export default function InstitutionsPage() {
     setSelected(detail);
   };
 
+  const loadAccessCodes = async () => {
+    if (!token) return;
+    const data = await getJson<any[]>("/api/superadmin/access-codes", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setAccessCodes(data);
+  };
+
   useEffect(() => {
     if (!token || role !== "superadmin") return;
-    loadInstitutions().catch(() => setError("Failed to load institutions."));
+    Promise.all([loadInstitutions(), loadAccessCodes()]).catch(() => setError("Failed to load institutions."));
   }, [token, role]);
+
+  const createAccessCodes = async () => {
+    if (!token) return;
+    try {
+      setError("");
+      const created = await postJson<{ count: number; created: { code: string }[] }>(
+        "/api/superadmin/access-codes",
+        { quantity: codeQuantity, label: codeLabel || undefined, max_uses: 1 },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setSuccess(`Created ${created.count} code(s): ${created.created.map((c) => c.code).join(", ")}`);
+      setCodeLabel("");
+      setCodeQuantity(1);
+      await loadAccessCodes();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not create access codes.");
+    }
+  };
+
+  const setAccessCodeStatus = async (id: number, isActive: boolean) => {
+    if (!token) return;
+    try {
+      await apiFetch(`/api/superadmin/access-codes/${id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_active: isActive }),
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await loadAccessCodes();
+      setSuccess(`Access code ${isActive ? "activated" : "deactivated"}.`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not update code status.");
+    }
+  };
 
   const filtered = useMemo(
     () => institutions.filter((i) => i.name.toLowerCase().includes(search.toLowerCase())),
@@ -324,6 +368,36 @@ export default function InstitutionsPage() {
           </Card>
         </div>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Individual access codes</CardTitle>
+          <CardDescription>Create one-time purchase codes and monitor redemption status.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-2 md:grid-cols-[2fr_1fr_auto]">
+            <Input placeholder="Optional label (e.g. Spring campaign)" value={codeLabel} onChange={(e) => setCodeLabel(e.target.value)} />
+            <Input type="number" min={1} max={50} value={codeQuantity} onChange={(e) => setCodeQuantity(Number(e.target.value || 1))} />
+            <Button onClick={createAccessCodes}>Generate</Button>
+          </div>
+          <div className="space-y-2">
+            {accessCodes.map((code) => (
+              <div key={code.id} className="rounded border p-3 flex items-center justify-between gap-3 text-sm">
+                <div>
+                  <p className="font-medium">{code.label || "Unlabeled code batch"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Uses: {code.use_count}/{code.max_uses} • Redeemed by: {code.redeemed_by || "Not redeemed"} • {code.is_active ? "Active" : "Inactive"}
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => setAccessCodeStatus(code.id, !code.is_active)}>
+                  {code.is_active ? "Deactivate" : "Activate"}
+                </Button>
+              </div>
+            ))}
+            {accessCodes.length === 0 && <p className="text-sm text-muted-foreground">No access codes yet.</p>}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
