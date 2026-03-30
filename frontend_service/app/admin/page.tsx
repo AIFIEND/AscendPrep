@@ -20,7 +20,7 @@ export default async function AdminIndexPage() {
     <AccessDeniedState
       description="Institution admin tools are available only to users explicitly assigned by a superadmin."
       actionHref="/dashboard"
-      actionLabel="Back to Student Dashboard"
+      actionLabel="Back to Learner Dashboard"
     />
   );
 }

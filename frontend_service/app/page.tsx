@@ -26,14 +26,14 @@ export default async function HomePage() {
           <div className="space-y-6">
             <SetupStatusNotice />
             <span className="inline-block text-xs tracking-widest uppercase text-muted-foreground">
-              DECA Practice Web App
+              PeakQuest Learning Platform
             </span>
             <h1 className="text-4xl md:text-5xl font-bold leading-tight">
               Practice smarter. <span className="text-primary">Score higher.</span>
             </h1>
             <p className="text-lg text-muted-foreground">
               Targeted multiple-choice practice with instant feedback, progress
-              tracking, and admin analytics. Built for DECA competitors and teachers.
+              tracking, and admin analytics for classrooms, programs, and competitive prep teams.
             </p>
 
             {session ? (
@@ -80,7 +80,7 @@ export default async function HomePage() {
                 Visualize improvement over time and spot weak areas.
               </FeatureItem>
               <FeatureItem title="Admin Insights">
-                Counselors and admins can monitor only their institution performance.
+                Coaches and admins can monitor performance across their institution.
               </FeatureItem>
             </CardContent>
           </Card>
@@ -105,7 +105,7 @@ export default async function HomePage() {
       {/* FOOTER */}
       <footer className="py-8 border-t">
         <div className="container mx-auto px-4 text-sm text-muted-foreground flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
-          <span>© {new Date().getFullYear()} DECA Practice</span>
+          <span>© {new Date().getFullYear()} PeakQuest Learning</span>
           <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
             <Link className="hover:underline" href="/start-quiz">Quick Start</Link>
             <Link className="hover:underline" href="/login">Login</Link>
