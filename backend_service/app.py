@@ -83,8 +83,30 @@ def _cors_origin_values(raw_origins: str):
     return values
 
 
-FRONTEND_ORIGINS = _cors_origin_values(_frontend_origin_raw)
+# 1. New helper to parse wildcards into regex objects
+def parse_cors_origins(raw_origin_string):
+    if not raw_origin_string:
+        return ["http://localhost:3000"]
+    
+    origins_list = [o.strip() for o in raw_origin_string.split(',')]
+    parsed_origins = []
+    
+    for origin in origins_list:
+        if '*' in origin:
+            # Convert wildcard * into a valid regex pattern
+            # Example: https://deca-*.vercel.app -> ^https://deca\-.*\.vercel\.app$
+            pattern = "^" + re.escape(origin).replace(r"\*", ".*") + "$"
+            parsed_origins.append(re.compile(pattern))
+        else:
+            # Exact match strings stay as normal strings
+            parsed_origins.append(origin)
+            
+    return parsed_origins
 
+# 2. Replace your existing _cors_origin_values call
+FRONTEND_ORIGINS = parse_cors_origins(_frontend_origin_raw)
+
+# 3. Initialize CORS 
 CORS(
     app,
     origins=FRONTEND_ORIGINS,
@@ -93,7 +115,7 @@ CORS(
     supports_credentials=True,
 )
 
-db = SQLAlchemy(app)
+db = SQLAlchemy(app) 
 bcrypt = Bcrypt(app)
 
 LOGIN_RATE_WINDOW = 5 * 60
