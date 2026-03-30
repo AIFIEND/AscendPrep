@@ -332,6 +332,97 @@ def _today_question_goal_progress(user_id: int, goal: int = 20):
     }
 
 
+BADGE_RULES = {
+    "first_session": ("First Session", "Complete your first practice session."),
+    "ten_correct_session": ("Sharp Focus", "Answer at least 10 questions correctly in one session."),
+    "streak_7": ("7-Day Streak", "Practice on 7 consecutive days."),
+    "hundred_questions": ("Century Mark", "Answer 100 questions in total."),
+    "mastery_80": ("Category Mastery", "Reach at least 80% mastery in any category (min 20 answered)."),
+}
+
+
+def _normalize_access_code(raw_code: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", (raw_code or "").upper())
+    return cleaned
+
+
+def _access_code_hash(raw_code: str) -> str:
+    return hashlib.sha256(_normalize_access_code(raw_code).encode("utf-8")).hexdigest()
+
+
+def _generate_plain_access_code() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    chunks = ["".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(3)]
+    return "-".join(chunks)
+
+
+def _issue_unique_access_code() -> tuple[str, str]:
+    for _ in range(25):
+        plain = _generate_plain_access_code()
+        code_hash = _access_code_hash(plain)
+        if AccessCode.query.filter_by(code_hash=code_hash).first() is None:
+            return plain, code_hash
+    raise RuntimeError("Could not generate unique access code")
+
+
+def _find_access_code(raw_code: str):
+    normalized = _normalize_access_code(raw_code)
+    if len(normalized) < 8:
+        return None, "Access code format is invalid."
+    code_hash = _access_code_hash(normalized)
+    code = AccessCode.query.filter_by(code_hash=code_hash).first()
+    if not code:
+        return None, "Access code is invalid."
+    if not code.is_active:
+        return None, "Access code is inactive."
+    if code.expires_at and code.expires_at < datetime.utcnow():
+        return None, "Access code has expired."
+    if code.use_count >= code.max_uses:
+        return None, "Access code has already been used."
+    return code, None
+
+
+def _get_or_create_gamification(user_id: int) -> UserGamification:
+    state = UserGamification.query.filter_by(user_id=user_id).first()
+    if not state:
+        state = UserGamification(user_id=user_id)
+        db.session.add(state)
+        db.session.flush()
+    return state
+
+
+def _level_for_xp(xp: int) -> int:
+    return max(1, (xp // 100) + 1)
+
+
+def _unlock_badge(user_id: int, badge_key: str):
+    if badge_key not in BADGE_RULES:
+        return None
+    existing = UserBadge.query.filter_by(user_id=user_id, badge_key=badge_key).first()
+    if existing:
+        return None
+    title, description = BADGE_RULES[badge_key]
+    badge = UserBadge(user_id=user_id, badge_key=badge_key, title=title, description=description)
+    db.session.add(badge)
+    return badge
+
+
+def _today_question_goal_progress(user_id: int, goal: int = 20):
+    start_of_day = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    completed_today = QuizAttempt.query.filter(
+        QuizAttempt.user_id == user_id,
+        QuizAttempt.is_complete == True,
+        QuizAttempt.timestamp >= start_of_day
+    ).all()
+    answered = sum(a.total_questions for a in completed_today)
+    return {
+        "goal_questions": goal,
+        "answered_today": answered,
+        "remaining": max(goal - answered, 0),
+        "is_complete": answered >= goal,
+    }
+
+
 def _superadmin_exists_safe() -> bool:
     try:
         return _superadmin_exists()
