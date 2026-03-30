@@ -37,10 +37,10 @@ function getNav(role: AppRole): NavItem[] {
 
   if (role === "institution_admin") {
     return [
-      { href: "/admin/dashboard", label: "Admin Dashboard" },
-      { href: "/admin/students", label: "Students / Users" },
       { href: "/admin/institution", label: "Institution Overview" },
-      { href: "/dashboard", label: "Student View" },
+      { href: "/admin/students", label: "Students / Users" },
+      { href: "/admin/dashboard", label: "Assignment Center" },
+      { href: "/admin/student-view", label: "Student View" },
     ];
   }
 

@@ -26,10 +26,10 @@ export default async function AdminDashboardPage() {
   return (
     <div className="container mx-auto p-4 space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Admin Dashboard</h1>
-        <p className="text-muted-foreground">Students at {session.user.institution_name ?? "Your Institution"}</p>
+        <h1 className="text-3xl font-bold">Assignment Center</h1>
+        <p className="text-muted-foreground">Create and track institution assignments for {session.user.institution_name ?? "Your Institution"}.</p>
       </div>
-      <AdminDashboardClient />
+      <AdminDashboardClient view="assignments" />
     </div>
   );
 }
