@@ -14,6 +14,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
+import { Progress } from "@/components/ui/progress";
+import { SectionBlock } from "@/components/ui/page-shell";
+import { Activity, Building2, Users, ClipboardCheck } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -200,18 +203,42 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
   };
 
   const renderSummaryHeader = (
-    <div className="grid gap-4 md:grid-cols-3">
-      <Card>
-        <CardHeader><CardTitle className="text-sm">Total students</CardTitle></CardHeader>
-        <CardContent className="text-2xl font-bold">{totals.total_students}</CardContent>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <Card className="border-primary/15 bg-primary/5">
+        <CardContent className="flex items-center justify-between p-4">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Total learners</p>
+            <p className="text-2xl font-bold">{totals.total_students}</p>
+          </div>
+          <Users className="h-5 w-5 text-primary" />
+        </CardContent>
       </Card>
-      <Card>
-        <CardHeader><CardTitle className="text-sm">Total quizzes taken</CardTitle></CardHeader>
-        <CardContent className="text-2xl font-bold">{totals.total_quizzes_taken}</CardContent>
+      <Card className="border-cyan-300/30 bg-cyan-50/50 dark:bg-cyan-950/20">
+        <CardContent className="flex items-center justify-between p-4">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Sessions completed</p>
+            <p className="text-2xl font-bold">{totals.total_quizzes_taken}</p>
+          </div>
+          <ClipboardCheck className="h-5 w-5 text-cyan-600" />
+        </CardContent>
       </Card>
-      <Card>
-        <CardHeader><CardTitle className="text-sm">Average score</CardTitle></CardHeader>
-        <CardContent className="text-2xl font-bold">{totals.average_score?.toFixed(1) ?? "—"}%</CardContent>
+      <Card className="border-emerald-300/30 bg-emerald-50/50 dark:bg-emerald-950/20">
+        <CardContent className="flex items-center justify-between p-4">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Average score</p>
+            <p className="text-2xl font-bold">{totals.average_score?.toFixed(1) ?? "—"}%</p>
+          </div>
+          <Activity className="h-5 w-5 text-emerald-600" />
+        </CardContent>
+      </Card>
+      <Card className="border-violet-300/30 bg-violet-50/50 dark:bg-violet-950/20">
+        <CardContent className="flex items-center justify-between p-4">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Institution</p>
+            <p className="max-w-[12rem] truncate text-lg font-bold">{institution.name}</p>
+          </div>
+          <Building2 className="h-5 w-5 text-violet-600" />
+        </CardContent>
       </Card>
     </div>
   );
@@ -222,20 +249,20 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
 
       {view === "overview" && (
         <>
-          <Card>
+          <SectionBlock>
             <CardHeader>
               <CardTitle>Your Institution</CardTitle>
-              <CardDescription>Share this registration code with students in {institution.name}.</CardDescription>
+              <CardDescription>Share this registration code with learners in {institution.name}.</CardDescription>
             </CardHeader>
             <CardContent className="flex items-center justify-between">
               <div className="font-mono text-lg tracking-wider">{institution.registration_code}</div>
               <Badge variant="secondary">Institution code</Badge>
             </CardContent>
-          </Card>
+          </SectionBlock>
 
-          <Card>
+          <SectionBlock>
             <CardHeader>
-              <CardTitle>Institution leaderboard</CardTitle>
+              <CardTitle>Learner leaderboard</CardTitle>
               <CardDescription>Most engaged learners by quiz activity and scores.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -246,9 +273,9 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                 </div>
               ))}
             </CardContent>
-          </Card>
+          </SectionBlock>
 
-          <Card>
+          <SectionBlock>
             <CardHeader>
               <CardTitle>Assignment summary</CardTitle>
               <CardDescription>Track completion, due dates, and required settings at a glance.</CardDescription>
@@ -266,9 +293,9 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                 </div>
               ))}
             </CardContent>
-          </Card>
+          </SectionBlock>
 
-          <Card>
+          <SectionBlock>
             <CardHeader>
               <CardTitle>Category performance</CardTitle>
               <CardDescription>Focus intervention on the lowest-accuracy categories first.</CardDescription>
@@ -278,21 +305,24 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                 <p className="text-sm text-muted-foreground">No completed quizzes yet. Ask students to begin with a short practice set.</p>
               ) : (
                 categoryRows.map((row) => (
-                  <div key={row.category} className="flex justify-between text-sm border rounded p-2">
-                    <span>{row.category}</span>
-                    <span className="font-medium">{row.accuracy.toFixed(1)}%</span>
+                  <div key={row.category} className="space-y-1 rounded-lg border p-3">
+                    <div className="flex justify-between text-sm">
+                      <span>{row.category}</span>
+                      <span className="font-medium">{row.accuracy.toFixed(1)}%</span>
+                    </div>
+                    <Progress value={row.accuracy} className="h-2" />
                   </div>
                 ))
               )}
             </CardContent>
-          </Card>
+          </SectionBlock>
         </>
       )}
 
       {view === "students" && (
-        <Card>
+        <Card className="app-surface">
           <CardHeader>
-            <CardTitle>Students / users</CardTitle>
+            <CardTitle>Learners</CardTitle>
             <CardDescription>Manage learner access for your institution.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -371,7 +401,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
 
       {view === "assignments" && (
         <>
-          <Card>
+          <Card className="app-surface">
             <CardHeader>
               <CardTitle>Create assignment</CardTitle>
               <CardDescription>Build targeted practice or tests for all learners or selected students.</CardDescription>
@@ -450,7 +480,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2 rounded border p-3">
+                <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
                   <Label className="font-medium">Categories</Label>
                   <div className="max-h-40 overflow-y-auto space-y-1">
                     {config.categories.map((cat) => (
@@ -471,7 +501,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                   </div>
                 </div>
 
-                <div className="space-y-2 rounded border p-3">
+                <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
                   <Label className="font-medium">Difficulties</Label>
                   <div className="space-y-1">
                     {config.difficulties.map((diff) => (
@@ -493,7 +523,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                 </div>
               </div>
 
-              <div className="space-y-2 rounded border p-3">
+              <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
                 <Label className="font-medium">Assignment audience</Label>
                 <RadioGroup
                   value={assignmentForm.assign_to_all ? "all" : "selected"}
@@ -532,7 +562,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                 )}
               </div>
 
-              <div className="grid gap-3 md:grid-cols-3 rounded border p-3">
+              <div className="grid gap-3 rounded-xl border bg-muted/20 p-3 md:grid-cols-3">
                 <div className="flex items-center justify-between gap-2">
                   <Label htmlFor="shuffle">Shuffle questions</Label>
                   <Switch
@@ -566,7 +596,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="app-surface">
             <CardHeader>
               <CardTitle>Assignment tracking</CardTitle>
               <CardDescription>Assignment specs and completion metrics.</CardDescription>

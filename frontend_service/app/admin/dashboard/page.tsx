@@ -4,6 +4,7 @@ import { AuthRequiredState } from "@/components/auth-required-state";
 import { AccessDeniedState } from "@/components/access-denied-state";
 import { AdminDashboardClient } from "./_components/admin-dashboard-client";
 import { resolveRole } from "@/lib/role-navigation";
+import { PageHeader, PageShell } from "@/components/ui/page-shell";
 
 export default async function AdminDashboardPage() {
   const session = await getServerSession(authOptions);
@@ -24,12 +25,13 @@ export default async function AdminDashboardPage() {
   }
 
   return (
-    <div className="container mx-auto p-4 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Assignment Center</h1>
-        <p className="text-muted-foreground">Create and track institution assignments for {session.user.institution_name ?? "Your Institution"}.</p>
-      </div>
+    <PageShell>
+      <PageHeader
+        eyebrow="Admin Workspace"
+        title="Assignment Operations"
+        description={`Create, distribute, and monitor assignment performance for ${session.user.institution_name ?? "your institution"}.`}
+      />
       <AdminDashboardClient view="assignments" />
-    </div>
+    </PageShell>
   );
 }

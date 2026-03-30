@@ -39,11 +39,11 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen">
-      <Card className="w-full max-w-sm">
+    <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center py-10">
+      <Card className="w-full max-w-sm border-primary/20 shadow-lg">
         <CardHeader>
-          <CardTitle>Login</CardTitle>
-          <CardDescription>Enter your credentials to access your account.</CardDescription>
+          <CardTitle>Welcome back</CardTitle>
+          <CardDescription>Sign in to continue your study streak and track progress.</CardDescription>
           <div className="pt-2">
             <SetupStatusNotice />
           </div>
@@ -60,7 +60,7 @@ export default function LoginPage() {
             </div>
             {error && <p role="status" aria-live="polite" className="text-sm text-red-500">{error}</p>}
             <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? 'Logging in...' : 'Login'}
+              {isSubmitting ? 'Signing in...' : 'Sign in'}
             </Button>
             <p className="text-xs text-muted-foreground text-center">
               Need an account? <Link href="/register" className="underline">Register with your institution code</Link>.

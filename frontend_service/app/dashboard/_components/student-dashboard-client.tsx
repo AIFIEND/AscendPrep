@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import { Award, Flame, Target, TrendingUp, Zap } from "lucide-react";
 import { getJson } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { SectionBlock } from "@/components/ui/page-shell";
 
 type Summary = {
   xp: number;
@@ -42,11 +45,15 @@ export function StudentDashboardClient() {
     getJson<Summary>("/api/user/gamification-summary", {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
-    }).then(setSummary).catch(() => setSummary(null));
+    })
+      .then(setSummary)
+      .catch(() => setSummary(null));
     getJson<{ focus_areas: FocusArea[] }>("/api/user/focus-areas", {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
-    }).then((data) => setFocusAreas(data.focus_areas ?? [])).catch(() => setFocusAreas([]));
+    })
+      .then((data) => setFocusAreas(data.focus_areas ?? []))
+      .catch(() => setFocusAreas([]));
   }, [token]);
 
   const recentAverage = useMemo(() => {
@@ -56,76 +63,156 @@ export function StudentDashboardClient() {
 
   if (!summary) return null;
 
-  const goalPct = summary.daily_goal.goal_questions > 0
-    ? Math.min(100, Math.round((summary.daily_goal.answered_today / summary.daily_goal.goal_questions) * 100))
-    : 0;
+  const goalPct =
+    summary.daily_goal.goal_questions > 0
+      ? Math.min(100, Math.round((summary.daily_goal.answered_today / summary.daily_goal.goal_questions) * 100))
+      : 0;
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-      <Card>
-        <CardHeader><CardTitle>Level {summary.level}</CardTitle><CardDescription>{summary.xp} XP total</CardDescription></CardHeader>
-        <CardContent className="text-sm text-muted-foreground">{summary.xp_to_next_level} XP to next level.</CardContent>
-      </Card>
-      <Card>
-        <CardHeader><CardTitle>{summary.current_streak_days}-day streak</CardTitle><CardDescription>Best: {summary.best_streak_days} days</CardDescription></CardHeader>
-        <CardContent className="text-sm text-muted-foreground">Complete at least one quiz daily to maintain it.</CardContent>
-      </Card>
-      <Card>
-        <CardHeader><CardTitle>Daily goal</CardTitle><CardDescription>{summary.daily_goal.answered_today}/{summary.daily_goal.goal_questions} questions today</CardDescription></CardHeader>
-        <CardContent className="space-y-2"><Progress value={goalPct} /><p className="text-xs text-muted-foreground">{summary.daily_goal.is_complete ? "Goal complete" : `${summary.daily_goal.remaining} to go`}</p></CardContent>
-      </Card>
-      <Card>
-        <CardHeader><CardTitle>Recent performance</CardTitle><CardDescription>{recentAverage ?? "--"}% avg over latest attempts</CardDescription></CardHeader>
-        <CardContent className="text-sm text-muted-foreground">Overall accuracy: {summary.accuracy_percent}%. Quizzes completed: {summary.quizzes_completed}.</CardContent>
-      </Card>
+    <div className="space-y-6">
+      <SectionBlock className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card">
+        <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+          <div className="space-y-4">
+            <Badge className="w-fit gap-1 bg-primary/15 text-primary hover:bg-primary/15">
+              <Zap className="h-3.5 w-3.5" /> Momentum Mode
+            </Badge>
+            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Ready for your next focused practice sprint?</h2>
+            <p className="max-w-xl text-sm text-muted-foreground sm:text-base">
+              You are at <strong>Level {summary.level}</strong> with <strong>{summary.xp} XP</strong>. Keep daily reps going to maintain your streak and improve weak categories.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="lg">
+                <Link href="/tests-taken">Continue last quiz</Link>
+              </Button>
+              <Button asChild size="lg" variant="outline">
+                <Link href="/start-quiz?mode=targeted">Start targeted practice</Link>
+              </Button>
+            </div>
+          </div>
 
-      <Card className="md:col-span-2">
-        <CardHeader><CardTitle>Focus Areas</CardTitle><CardDescription>Smart weakness targeting from your quiz history.</CardDescription></CardHeader>
-        <CardContent className="space-y-2">
-          {focusAreas.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Complete a few quizzes to unlock targeted recommendations.</p>
-          ) : (
-            focusAreas.map((item) => (
-              <div key={item.category} className="rounded border p-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium">{item.category}</span>
-                  <span>{item.lifetime_accuracy}% mastery</span>
+          <Card className="border-primary/20 bg-card/90">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Level progress</CardTitle>
+              <CardDescription>{summary.xp_to_next_level} XP to reach the next level</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Progress value={Math.max(10, Math.min(100, 100 - summary.xp_to_next_level))} className="h-3" />
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg bg-secondary/70 p-3">
+                  <p className="text-muted-foreground">Quizzes completed</p>
+                  <p className="text-xl font-semibold">{summary.quizzes_completed}</p>
                 </div>
-                <p className="text-xs text-muted-foreground">Trend: {item.trend}. Suggested practice: {item.suggested_question_count} questions.</p>
+                <div className="rounded-lg bg-secondary/70 p-3">
+                  <p className="text-muted-foreground">Accuracy</p>
+                  <p className="text-xl font-semibold">{summary.accuracy_percent}%</p>
+                </div>
               </div>
-            ))
-          )}
-          <Button asChild size="sm">
-            <Link href="/start-quiz?mode=targeted">Start targeted quiz</Link>
+            </CardContent>
+          </Card>
+        </div>
+      </SectionBlock>
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CompactStat icon={<Flame className="h-4 w-4 text-orange-500" />} label="Current streak" value={`${summary.current_streak_days} days`} note={`Best: ${summary.best_streak_days} days`} />
+        <CompactStat icon={<Target className="h-4 w-4 text-emerald-600" />} label="Daily goal" value={`${summary.daily_goal.answered_today}/${summary.daily_goal.goal_questions}`} note={summary.daily_goal.is_complete ? "Goal complete" : `${summary.daily_goal.remaining} remaining`} />
+        <CompactStat icon={<TrendingUp className="h-4 w-4 text-cyan-600" />} label="Recent average" value={`${recentAverage ?? "--"}%`} note="Latest attempts" />
+        <CompactStat icon={<Award className="h-4 w-4 text-violet-600" />} label="Questions answered" value={summary.total_questions_answered.toString()} note="Lifetime total" />
+      </section>
+
+      <section className="grid gap-6 lg:grid-cols-[1.25fr_1fr]">
+        <SectionBlock>
+          <div className="mb-4 flex items-end justify-between">
+            <div>
+              <h3 className="section-title">Focus recommendations</h3>
+              <p className="section-subtitle">Practice these categories next for the fastest score gains.</p>
+            </div>
+            <Button asChild size="sm">
+              <Link href="/start-quiz?mode=targeted">Launch targeted quiz</Link>
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {focusAreas.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Complete a few quizzes to unlock personalized focus recommendations.</p>
+            ) : (
+              focusAreas.slice(0, 4).map((item, index) => (
+                <div key={item.category} className="rounded-xl border border-amber-200/60 bg-amber-50/60 p-3 dark:border-amber-700/30 dark:bg-amber-950/20">
+                  <div className="mb-1 flex items-center justify-between text-sm">
+                    <p className="font-medium">{index + 1}. {item.category}</p>
+                    <Badge variant="outline" className="bg-background">{item.lifetime_accuracy}% mastery</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Trend: {item.trend}. Recommended drill: {item.suggested_question_count} questions.
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+        </SectionBlock>
+
+        <SectionBlock>
+          <h3 className="section-title">Achievements</h3>
+          <p className="section-subtitle mb-4">Milestones earned from consistency and improvement.</p>
+          <div className="space-y-2">
+            {(summary.badges || []).slice(0, 4).map((badge) => (
+              <div key={badge.key} className="rounded-lg border border-violet-300/40 bg-violet-50/60 p-3 dark:border-violet-700/30 dark:bg-violet-950/20">
+                <p className="text-sm font-medium">{badge.title}</p>
+                <p className="text-xs text-muted-foreground">{badge.description}</p>
+              </div>
+            ))}
+            {!summary.badges?.length && (
+              <p className="text-sm text-muted-foreground">Finish your first study session to unlock your first achievement.</p>
+            )}
+          </div>
+        </SectionBlock>
+      </section>
+
+      <SectionBlock>
+        <div className="mb-4 flex items-end justify-between">
+          <div>
+            <h3 className="section-title">Topic mastery</h3>
+            <p className="section-subtitle">Strengthen categories below 70% to raise overall readiness.</p>
+          </div>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/progress">Open full progress</Link>
           </Button>
-        </CardContent>
-      </Card>
-
-      <Card className="md:col-span-2">
-        <CardHeader><CardTitle>Topic mastery</CardTitle><CardDescription>Focus next on categories below 70%.</CardDescription></CardHeader>
-        <CardContent className="space-y-2">
-          {(summary.mastery || []).slice(0, 5).map((item) => (
-            <div key={item.category}>
-              <div className="flex justify-between text-sm"><span>{item.category}</span><span>{item.percent}%</span></div>
-              <Progress value={item.percent} />
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {(summary.mastery || []).slice(0, 6).map((item) => (
+            <div key={item.category} className="rounded-xl border p-3">
+              <div className="mb-2 flex items-center justify-between text-sm">
+                <span className="font-medium">{item.category}</span>
+                <span className="text-muted-foreground">{item.percent}%</span>
+              </div>
+              <Progress value={item.percent} className="h-2.5" />
             </div>
           ))}
-          <Button asChild size="sm" variant="outline"><Link href="/progress">Open full progress</Link></Button>
-        </CardContent>
-      </Card>
-
-      <Card className="md:col-span-2">
-        <CardHeader><CardTitle>Achievements</CardTitle><CardDescription>Meaningful milestones tied to consistency and mastery.</CardDescription></CardHeader>
-        <CardContent className="space-y-2">
-          {(summary.badges || []).slice(0, 4).map((badge) => (
-            <div key={badge.key} className="rounded border p-2">
-              <p className="text-sm font-medium">{badge.title}</p>
-              <p className="text-xs text-muted-foreground">{badge.description}</p>
-            </div>
-          ))}
-          {!summary.badges?.length && <p className="text-sm text-muted-foreground">Complete your first session to unlock achievements.</p>}
-        </CardContent>
-      </Card>
+        </div>
+      </SectionBlock>
     </div>
+  );
+}
+
+function CompactStat({
+  icon,
+  label,
+  value,
+  note,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  note: string;
+}) {
+  return (
+    <Card className="border-border/80 bg-card/90">
+      <CardContent className="flex items-start gap-3 p-4">
+        <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-md bg-secondary">{icon}</span>
+        <div>
+          <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          <p className="text-xl font-semibold leading-tight">{value}</p>
+          <p className="text-xs text-muted-foreground">{note}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

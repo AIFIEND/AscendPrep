@@ -4,6 +4,7 @@ import { AuthRequiredState } from "@/components/auth-required-state";
 import { AccessDeniedState } from "@/components/access-denied-state";
 import { resolveRole } from "@/lib/role-navigation";
 import { AdminDashboardClient } from "../dashboard/_components/admin-dashboard-client";
+import { PageHeader, PageShell } from "@/components/ui/page-shell";
 
 export default async function AdminStudentsPage() {
   const session = await getServerSession(authOptions);
@@ -16,7 +17,7 @@ export default async function AdminStudentsPage() {
   if (role !== "institution_admin") {
     return (
       <AccessDeniedState
-        description="Student/user management is only available to institution admins."
+        description="Learner management is only available to institution admins."
         actionHref={role === "superadmin" ? "/superadmin/dashboard" : "/dashboard"}
         actionLabel="Go to my dashboard"
       />
@@ -24,12 +25,13 @@ export default async function AdminStudentsPage() {
   }
 
   return (
-    <div className="container mx-auto p-4 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Students / Users</h1>
-        <p className="text-muted-foreground">View users, role labels, status, and activate/deactivate learner accounts.</p>
-      </div>
+    <PageShell>
+      <PageHeader
+        eyebrow="Admin Workspace"
+        title="Learner Management"
+        description="Review status, participation, and performance for each learner account."
+      />
       <AdminDashboardClient view="students" />
-    </div>
+    </PageShell>
   );
 }

@@ -130,10 +130,10 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center">
-      <Card className="w-full max-w-md">
+    <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center py-10">
+      <Card className="w-full max-w-md border-primary/20 shadow-lg">
         <CardHeader>
-          <CardTitle>Create your learner account</CardTitle>
+          <CardTitle>Create your study account</CardTitle>
           <CardDescription>
             Join through an institution/program code from your advisor/teacher, or use an individual access code.
           </CardDescription>

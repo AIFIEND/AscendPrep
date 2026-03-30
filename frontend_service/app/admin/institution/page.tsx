@@ -4,6 +4,7 @@ import { AuthRequiredState } from "@/components/auth-required-state";
 import { AccessDeniedState } from "@/components/access-denied-state";
 import { resolveRole } from "@/lib/role-navigation";
 import { AdminDashboardClient } from "../dashboard/_components/admin-dashboard-client";
+import { PageHeader, PageShell } from "@/components/ui/page-shell";
 
 export default async function AdminInstitutionPage() {
   const session = await getServerSession(authOptions);
@@ -24,12 +25,13 @@ export default async function AdminInstitutionPage() {
   }
 
   return (
-    <div className="container mx-auto p-4 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Institution Overview</h1>
-        <p className="text-muted-foreground">Summary analytics, leaderboard, category performance, and assignment completion snapshot.</p>
-      </div>
+    <PageShell>
+      <PageHeader
+        eyebrow="Admin Workspace"
+        title="Institution Overview"
+        description="Monitor learner engagement, completion trends, and category performance at a glance."
+      />
       <AdminDashboardClient view="overview" />
-    </div>
+    </PageShell>
   );
 }

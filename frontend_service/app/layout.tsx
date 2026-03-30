@@ -1,17 +1,15 @@
-// app/layout.tsx
-
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import NextAuthProvider from "@/context/NextAuthProvider";
-import Navbar from '@/components/Navbar';
+import Navbar from "@/components/Navbar";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "DECA Practice Review",
-  description: "An application to practice for the DECA exam.",
+  title: "PeakQuest Learning",
+  description: "Adaptive business and exam practice platform for classrooms, programs, and individual learners.",
 };
 
 export default function RootLayout({
@@ -25,9 +23,7 @@ export default function RootLayout({
         <NextAuthProvider>
           <Toaster />
           <Navbar />
-          <main className="max-w-7xl mx-auto p-4">
-            {children}
-          </main>
+          <main className="mx-auto w-full max-w-[1400px] px-2 pb-8 sm:px-4">{children}</main>
         </NextAuthProvider>
       </body>
     </html>
