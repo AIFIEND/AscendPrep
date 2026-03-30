@@ -1,5 +1,27 @@
 -- Adds optional account type support, secret access codes, and gamification tables.
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_superadmin BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS institution_id INTEGER;
 ALTER TABLE "user" ADD COLUMN IF NOT EXISTS account_type VARCHAR(24) NOT NULL DEFAULT 'institution';
+
+-- Backfill legacy superadmin column naming if old schema used is_super_admin.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='user' AND column_name='is_super_admin'
+  ) THEN
+    UPDATE "user"
+      SET is_superadmin = COALESCE(is_superadmin, is_super_admin, FALSE)
+      WHERE is_superadmin IS NULL OR is_superadmin = FALSE;
+  END IF;
+END $$;
+
+UPDATE "user" SET is_admin = FALSE WHERE is_admin IS NULL;
+UPDATE "user" SET is_superadmin = FALSE WHERE is_superadmin IS NULL;
+UPDATE "user" SET is_active = TRUE WHERE is_active IS NULL;
+UPDATE "user" SET account_type = 'institution' WHERE account_type IS NULL;
 
 CREATE TABLE IF NOT EXISTS access_code (
   id INTEGER PRIMARY KEY,

@@ -15,7 +15,6 @@ import random
 from time import time
 from collections import defaultdict
 from sqlalchemy.orm.attributes import flag_modified
-from sqlalchemy import inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
 load_dotenv()
@@ -238,108 +237,99 @@ class QuizAttempt(db.Model):
         }
 
 
-def _add_column_if_missing(table_name: str, column_name: str, ddl_fragment: str):
-    inspector = inspect(db.engine)
-    existing_columns = {c["name"] for c in inspector.get_columns(table_name)}
-    if column_name in existing_columns:
-        return
-    db.session.execute(text(f'ALTER TABLE "{table_name}" ADD COLUMN {column_name} {ddl_fragment}'))
-    print(f"✅ Schema repair: added {table_name}.{column_name}")
-
-
-def _repair_schema_for_bootstrap():
-    inspector = inspect(db.engine)
-    table_names = set(inspector.get_table_names())
-    if "user" not in table_names:
-        return
-
-    _add_column_if_missing("user", "is_admin", "BOOLEAN NOT NULL DEFAULT FALSE")
-    _add_column_if_missing("user", "is_superadmin", "BOOLEAN NOT NULL DEFAULT FALSE")
-    _add_column_if_missing("user", "is_active", "BOOLEAN NOT NULL DEFAULT TRUE")
-    _add_column_if_missing("user", "account_type", "VARCHAR(24) NOT NULL DEFAULT 'institution'")
-    _add_column_if_missing("user", "institution_id", "INTEGER")
-
-    user_columns = {c["name"] for c in inspect(db.engine).get_columns("user")}
-    if "is_super_admin" in user_columns and "is_superadmin" in user_columns:
-        db.session.execute(
-            text(
-                "UPDATE \"user\" "
-                "SET is_superadmin = COALESCE(is_superadmin, is_super_admin, FALSE) "
-                "WHERE is_superadmin IS NULL OR is_superadmin = FALSE"
-            )
-        )
-        print("✅ Schema repair: backfilled user.is_superadmin from legacy user.is_super_admin")
-
-    db.session.execute(text("UPDATE \"user\" SET is_admin = FALSE WHERE is_admin IS NULL"))
-    db.session.execute(text("UPDATE \"user\" SET is_superadmin = FALSE WHERE is_superadmin IS NULL"))
-    db.session.execute(text("UPDATE \"user\" SET is_active = TRUE WHERE is_active IS NULL"))
-
-    if "institution" in table_names:
-        _add_column_if_missing("institution", "is_active", "BOOLEAN NOT NULL DEFAULT TRUE")
-
-    if "access_code" not in table_names:
-        db.session.execute(text(
-            """
-            CREATE TABLE access_code (
-                id INTEGER PRIMARY KEY,
-                code_hash VARCHAR(64) NOT NULL UNIQUE,
-                label VARCHAR(120),
-                is_active BOOLEAN NOT NULL DEFAULT TRUE,
-                max_uses INTEGER NOT NULL DEFAULT 1,
-                use_count INTEGER NOT NULL DEFAULT 0,
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                expires_at DATETIME,
-                redeemed_at DATETIME,
-                redeemed_by_user_id INTEGER,
-                created_by_user_id INTEGER,
-                FOREIGN KEY(redeemed_by_user_id) REFERENCES "user"(id),
-                FOREIGN KEY(created_by_user_id) REFERENCES "user"(id)
-            )
-            """
-        ))
-        print("✅ Schema repair: created access_code table")
-
-    if "user_gamification" not in table_names:
-        db.session.execute(text(
-            """
-            CREATE TABLE user_gamification (
-                id INTEGER PRIMARY KEY,
-                user_id INTEGER NOT NULL UNIQUE,
-                xp INTEGER NOT NULL DEFAULT 0,
-                total_questions_answered INTEGER NOT NULL DEFAULT 0,
-                total_correct_answers INTEGER NOT NULL DEFAULT 0,
-                current_streak_days INTEGER NOT NULL DEFAULT 0,
-                best_streak_days INTEGER NOT NULL DEFAULT 0,
-                last_practice_date DATE,
-                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(user_id) REFERENCES "user"(id)
-            )
-            """
-        ))
-        print("✅ Schema repair: created user_gamification table")
-
-    if "user_badge" not in table_names:
-        db.session.execute(text(
-            """
-            CREATE TABLE user_badge (
-                id INTEGER PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                badge_key VARCHAR(64) NOT NULL,
-                title VARCHAR(120) NOT NULL,
-                description VARCHAR(255) NOT NULL,
-                unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(user_id) REFERENCES "user"(id),
-                UNIQUE(user_id, badge_key)
-            )
-            """
-        ))
-        print("✅ Schema repair: created user_badge table")
-
-    db.session.commit()
-
-
 def _superadmin_exists() -> bool:
     return User.query.filter_by(is_superadmin=True).count() > 0
+
+
+BADGE_RULES = {
+    "first_session": ("First Session", "Complete your first practice session."),
+    "ten_correct_session": ("Sharp Focus", "Answer at least 10 questions correctly in one session."),
+    "streak_7": ("7-Day Streak", "Practice on 7 consecutive days."),
+    "hundred_questions": ("Century Mark", "Answer 100 questions in total."),
+    "mastery_80": ("Category Mastery", "Reach at least 80% mastery in any category (min 20 answered)."),
+}
+
+
+def _normalize_access_code(raw_code: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", (raw_code or "").upper())
+    return cleaned
+
+
+def _access_code_hash(raw_code: str) -> str:
+    return hashlib.sha256(_normalize_access_code(raw_code).encode("utf-8")).hexdigest()
+
+
+def _generate_plain_access_code() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    chunks = ["".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(3)]
+    return "-".join(chunks)
+
+
+def _issue_unique_access_code() -> tuple[str, str]:
+    for _ in range(25):
+        plain = _generate_plain_access_code()
+        code_hash = _access_code_hash(plain)
+        if AccessCode.query.filter_by(code_hash=code_hash).first() is None:
+            return plain, code_hash
+    raise RuntimeError("Could not generate unique access code")
+
+
+def _find_access_code(raw_code: str):
+    normalized = _normalize_access_code(raw_code)
+    if len(normalized) < 8:
+        return None, "Access code format is invalid."
+    code_hash = _access_code_hash(normalized)
+    code = AccessCode.query.filter_by(code_hash=code_hash).first()
+    if not code:
+        return None, "Access code is invalid."
+    if not code.is_active:
+        return None, "Access code is inactive."
+    if code.expires_at and code.expires_at < datetime.utcnow():
+        return None, "Access code has expired."
+    if code.use_count >= code.max_uses:
+        return None, "Access code has already been used."
+    return code, None
+
+
+def _get_or_create_gamification(user_id: int) -> UserGamification:
+    state = UserGamification.query.filter_by(user_id=user_id).first()
+    if not state:
+        state = UserGamification(user_id=user_id)
+        db.session.add(state)
+        db.session.flush()
+    return state
+
+
+def _level_for_xp(xp: int) -> int:
+    return max(1, (xp // 100) + 1)
+
+
+def _unlock_badge(user_id: int, badge_key: str):
+    if badge_key not in BADGE_RULES:
+        return None
+    existing = UserBadge.query.filter_by(user_id=user_id, badge_key=badge_key).first()
+    if existing:
+        return None
+    title, description = BADGE_RULES[badge_key]
+    badge = UserBadge(user_id=user_id, badge_key=badge_key, title=title, description=description)
+    db.session.add(badge)
+    return badge
+
+
+def _today_question_goal_progress(user_id: int, goal: int = 20):
+    start_of_day = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    completed_today = QuizAttempt.query.filter(
+        QuizAttempt.user_id == user_id,
+        QuizAttempt.is_complete == True,
+        QuizAttempt.timestamp >= start_of_day
+    ).all()
+    answered = sum(a.total_questions for a in completed_today)
+    return {
+        "goal_questions": goal,
+        "answered_today": answered,
+        "remaining": max(goal - answered, 0),
+        "is_complete": answered >= goal,
+    }
 
 
 BADGE_RULES = {
@@ -439,12 +429,7 @@ def _superadmin_exists_safe() -> bool:
     except SQLAlchemyError as err:
         db.session.rollback()
         print(f"⚠️ Database query warning while checking superadmin status: {err}")
-        try:
-            _repair_schema_for_bootstrap()
-            return _superadmin_exists()
-        except SQLAlchemyError as repair_err:
-            print(f"⚠️ Schema repair failed while checking superadmin status: {repair_err}")
-            return False
+        raise
 
 
 def generate_registration_code() -> str:
@@ -585,7 +570,14 @@ def validate_access_code():
 @app.route('/api/bootstrap/status', methods=['GET'])
 def bootstrap_status():
     expected_token = os.environ.get('SUPERADMIN_BOOTSTRAP_TOKEN')
-    needs_bootstrap = _superadmin_exists_safe() is False
+    try:
+        needs_bootstrap = _superadmin_exists_safe() is False
+    except SQLAlchemyError:
+        return jsonify({
+            'message': 'Database unavailable or migrations not applied yet.',
+            'needs_superadmin_bootstrap': None,
+            'bootstrap_token_required': bool((expected_token or '').strip()),
+        }), 503
     return jsonify({
         'needs_superadmin_bootstrap': needs_bootstrap,
         'bootstrap_token_required': bool((expected_token or '').strip()),
@@ -598,13 +590,8 @@ def bootstrap_superadmin():
         if _superadmin_exists():
             return jsonify({'message': 'Superadmin already exists'}), 409
     except SQLAlchemyError as err:
-        print(f"⚠️ Bootstrap check failed, attempting schema repair: {err}")
-        try:
-            _repair_schema_for_bootstrap()
-            if _superadmin_exists():
-                return jsonify({'message': 'Superadmin already exists'}), 409
-        except SQLAlchemyError:
-            return jsonify({'message': 'Bootstrap unavailable due to database schema mismatch. Contact support.'}), 503
+        print(f"⚠️ Bootstrap check failed: {err}")
+        return jsonify({'message': 'Bootstrap unavailable: database not ready or migrations missing.'}), 503
 
     data = request.get_json() or {}
     username = (data.get('username') or '').strip()
@@ -1386,31 +1373,15 @@ def get_quiz_config():
 
 @app.route('/api/health', methods=['GET'])
 def health():
-    db_status = "ok"
-    needs_bootstrap = False
-    try:
-        needs_bootstrap = _superadmin_exists_safe()
-        needs_bootstrap = not needs_bootstrap
-    except Exception as err:
-        db_status = "degraded"
-        print(f"⚠️ Health check warning: {err}")
-
     return jsonify({
         'status': 'ok',
-        'db_status': db_status,
         'time': datetime.utcnow().isoformat(),
-        'multi_tenant_enabled': True,
-        'needs_superadmin_bootstrap': needs_bootstrap,
     }), 200
 
 
-with app.app_context():
-    try:
-        db.create_all()
-        _repair_schema_for_bootstrap()
-        print("✅ Database tables initialized successfully")
-    except Exception as e:
-        print(f"⚠️ Database initialization warning: {e}")
+@app.route('/health', methods=['GET'])
+def simple_health():
+    return jsonify({'status': 'ok'}), 200
 
 
 if __name__ == '__main__':
