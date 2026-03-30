@@ -77,7 +77,7 @@ export default function QuizClient({ attemptId, initialQuestions, initialAnswers
     const computedScore = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
 
     try {
-      await postJson(
+      const response = await postJson<any>(
         "/api/quiz/submit",
         {
           attemptId,
@@ -88,14 +88,10 @@ export default function QuizClient({ attemptId, initialQuestions, initialAnswers
         }
       );
 
+      if (response?.gamification) {
+        localStorage.setItem(`last-gamification-${attemptId}`, JSON.stringify(response.gamification));
+      }
       router.push("/results?attemptId=" + attemptId);
-        await postJson("/api/quiz/submit", {
-            attemptId
-        }, {
-            headers: { "Authorization": `Bearer ${token}` } // <--- ATTACH TOKEN
-        });
-        
-        router.push("/results?attemptId=" + attemptId);
     } catch (err) {
       console.error("Submit failed", err);
       setSubmitting(false);

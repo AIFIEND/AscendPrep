@@ -29,6 +29,7 @@ export const authOptions: NextAuthOptions = {
             is_superadmin: boolean;
             is_super_admin?: boolean;
             role: "student" | "institution_admin" | "superadmin";
+            account_type?: "institution" | "individual";
             institution_id: number | null;
             institution_name: string | null;
           }>("/api/auth/credentials", { username, password });
@@ -47,6 +48,7 @@ export const authOptions: NextAuthOptions = {
             is_superadmin: data.is_superadmin || data.is_super_admin,
             is_super_admin: data.is_superadmin || data.is_super_admin,
             role: resolvedRole,
+            account_type: data.account_type || "institution",
             institution_id: data.institution_id,
             institution_name: data.institution_name,
           };
@@ -73,6 +75,7 @@ export const authOptions: NextAuthOptions = {
         });
         token.institution_id = (user as { institution_id?: number | null }).institution_id;
         token.institution_name = (user as { institution_name?: string | null }).institution_name;
+        token.account_type = (user as { account_type?: "institution" | "individual" }).account_type || "institution";
       }
       return token;
     },
@@ -90,6 +93,7 @@ export const authOptions: NextAuthOptions = {
           is_superadmin: !!token.is_superadmin,
           is_super_admin: !!token.is_super_admin,
         }),
+        account_type: (token.account_type as "institution" | "individual" | undefined) || "institution",
         institution_id: token.institution_id ?? null,
         institution_name: token.institution_name ?? null,
       };

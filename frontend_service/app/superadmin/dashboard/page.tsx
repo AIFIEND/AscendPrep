@@ -55,6 +55,8 @@ export default function SuperadminDashboardPage() {
           <Metric title="Total institutions" value={summary.total_institutions} />
           <Metric title="Total users" value={summary.total_users} />
           <Metric title="Total admins" value={summary.total_admins} />
+          <Metric title="Individual users" value={summary.total_individual_users ?? 0} />
+          <Metric title="Active access codes" value={summary.active_access_codes ?? 0} />
           <Metric title="Total quizzes" value={summary.total_quizzes_taken} />
         </div>
       ) : (

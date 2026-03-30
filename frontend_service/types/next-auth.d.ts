@@ -9,6 +9,7 @@ declare module "next-auth" {
       is_superadmin?: boolean;
       is_super_admin?: boolean;
       role?: "student" | "institution_admin" | "superadmin";
+      account_type?: "institution" | "individual";
       institution_id?: number | null;
       institution_name?: string | null;
     } & DefaultSession["user"];
@@ -23,6 +24,7 @@ declare module "next-auth/jwt" {
     is_super_admin?: boolean;
     id?: string;
     role?: "student" | "institution_admin" | "superadmin";
+    account_type?: "institution" | "individual";
     institution_id?: number | null;
     institution_name?: string | null;
   }
