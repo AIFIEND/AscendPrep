@@ -21,6 +21,8 @@ export default function RegisterPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [institutionCode, setInstitutionCode] = useState("");
+  const [accessCode, setAccessCode] = useState("");
+  const [accountType, setAccountType] = useState<"institution" | "individual">("institution");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isValidatingCode, setIsValidatingCode] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -35,6 +37,25 @@ export default function RegisterPage() {
   }, [success, router]);
 
   const validateCode = async () => {
+    if (accountType === "individual") {
+      const normalizedAccessCode = accessCode.trim().toUpperCase();
+      if (!normalizedAccessCode) {
+        setCodeErrorMsg("Access code is required.");
+        return false;
+      }
+      setIsValidatingCode(true);
+      setCodeErrorMsg(null);
+      try {
+        await postJson("/api/access-codes/validate", { accessCode: normalizedAccessCode });
+        return true;
+      } catch (err) {
+        setCodeErrorMsg(err instanceof ApiError ? err.message : "Invalid access code.");
+        return false;
+      } finally {
+        setIsValidatingCode(false);
+      }
+    }
+
     const normalizedCode = institutionCode.trim().toUpperCase();
     if (!normalizedCode) {
       setCodeErrorMsg("Institution code is required.");
@@ -79,7 +100,9 @@ export default function RegisterPage() {
       await postJson("/api/register", {
         username,
         password,
+        accountType,
         institutionCode: institutionCode.trim().toUpperCase(),
+        accessCode: accessCode.trim().toUpperCase(),
       });
       setSuccess(true);
     } catch (err: any) {
@@ -104,7 +127,7 @@ export default function RegisterPage() {
         <CardHeader>
           <CardTitle>Create your student account</CardTitle>
           <CardDescription>
-            Registration requires your institution code. Your school or club counselor should provide this code.
+            Choose your onboarding path: institution code from your advisor, or individual purchase code.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -130,18 +153,45 @@ export default function RegisterPage() {
               )}
 
               <div className="space-y-2 rounded-md border p-3 bg-muted/30">
-                <Label htmlFor="institution-code" className="font-semibold">Institution code (required)</Label>
-                <Input
-                  id="institution-code"
-                  value={institutionCode}
-                  onChange={(e) => setInstitutionCode(e.target.value.toUpperCase())}
-                  onBlur={validateCode}
-                  required
-                  className={codeErrorMsg ? "border-destructive" : ""}
-                />
-                <p className="text-xs text-muted-foreground">
-                  This code connects your account to the correct school or organization.
-                </p>
+                <Label className="font-semibold">Account type</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button type="button" variant={accountType === "institution" ? "default" : "outline"} onClick={() => { setAccountType("institution"); setCodeErrorMsg(null); }}>
+                    Institution
+                  </Button>
+                  <Button type="button" variant={accountType === "individual" ? "default" : "outline"} onClick={() => { setAccountType("individual"); setCodeErrorMsg(null); }}>
+                    Individual
+                  </Button>
+                </div>
+
+                {accountType === "institution" ? (
+                  <>
+                    <Label htmlFor="institution-code" className="font-semibold">Institution code</Label>
+                    <Input
+                      id="institution-code"
+                      value={institutionCode}
+                      onChange={(e) => setInstitutionCode(e.target.value.toUpperCase())}
+                      onBlur={validateCode}
+                      required={accountType === "institution"}
+                      className={codeErrorMsg ? "border-destructive" : ""}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Use the code your school or chapter advisor provided.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Label htmlFor="access-code" className="font-semibold">Individual access code</Label>
+                    <Input
+                      id="access-code"
+                      value={accessCode}
+                      onChange={(e) => setAccessCode(e.target.value.toUpperCase())}
+                      onBlur={validateCode}
+                      required={accountType === "individual"}
+                      className={codeErrorMsg ? "border-destructive" : ""}
+                    />
+                    <p className="text-xs text-muted-foreground">Enter the purchase code you received after checkout.</p>
+                  </>
+                )}
                 {codeErrorMsg && <p className="text-sm text-destructive">{codeErrorMsg}</p>}
               </div>
 

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { AuthRequiredState } from "@/components/auth-required-state";
 import { resolveRole } from "@/lib/role-navigation";
+import { StudentDashboardClient } from "./_components/student-dashboard-client";
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
@@ -75,6 +76,8 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <StudentDashboardClient />
     </div>
   );
 }

@@ -1,7 +1,9 @@
 import os
 import re
 import hmac
-from datetime import datetime, timedelta
+import hashlib
+import secrets
+from datetime import datetime, timedelta, date
 import jwt
 from functools import wraps
 from flask import Flask, jsonify, request
@@ -83,28 +85,8 @@ def _cors_origin_values(raw_origins: str):
     return values
 
 
-# 1. New helper to parse wildcards into regex objects
-def parse_cors_origins(raw_origin_string):
-    if not raw_origin_string:
-        return ["http://localhost:3000"]
-    
-    origins_list = [o.strip() for o in raw_origin_string.split(',')]
-    parsed_origins = []
-    
-    for origin in origins_list:
-        if '*' in origin:
-            # Convert wildcard * into a valid regex pattern
-            # Example: https://deca-*.vercel.app -> ^https://deca\-.*\.vercel\.app$
-            pattern = "^" + re.escape(origin).replace(r"\*", ".*") + "$"
-            parsed_origins.append(re.compile(pattern))
-        else:
-            # Exact match strings stay as normal strings
-            parsed_origins.append(origin)
-            
-    return parsed_origins
+FRONTEND_ORIGINS = _cors_origin_values(_frontend_origin_raw)
 
-# 2. Replace your existing _cors_origin_values call
-FRONTEND_ORIGINS = parse_cors_origins(_frontend_origin_raw)
 
 # 3. Initialize CORS 
 CORS(
@@ -148,6 +130,7 @@ class User(db.Model):
     is_admin = db.Column(db.Boolean, default=False, nullable=False)
     is_superadmin = db.Column(db.Boolean, default=False, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    account_type = db.Column(db.String(24), default='institution', nullable=False, index=True)
     institution_id = db.Column(db.Integer, db.ForeignKey('institution.id'), nullable=True, index=True)
     institution = db.relationship('Institution', backref=db.backref('users', lazy=True))
 
@@ -185,6 +168,47 @@ class Question(db.Model):
             'category': self.category,
             'difficulty': self.difficulty,
         }
+
+
+class AccessCode(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    code_hash = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    label = db.Column(db.String(120), nullable=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    max_uses = db.Column(db.Integer, default=1, nullable=False)
+    use_count = db.Column(db.Integer, default=0, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=True)
+    redeemed_at = db.Column(db.DateTime, nullable=True)
+    redeemed_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    redeemed_by_user = db.relationship('User', foreign_keys=[redeemed_by_user_id])
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    created_by_user = db.relationship('User', foreign_keys=[created_by_user_id], post_update=True)
+
+
+class UserGamification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, unique=True, index=True)
+    xp = db.Column(db.Integer, default=0, nullable=False)
+    total_questions_answered = db.Column(db.Integer, default=0, nullable=False)
+    total_correct_answers = db.Column(db.Integer, default=0, nullable=False)
+    current_streak_days = db.Column(db.Integer, default=0, nullable=False)
+    best_streak_days = db.Column(db.Integer, default=0, nullable=False)
+    last_practice_date = db.Column(db.Date, nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class UserBadge(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    badge_key = db.Column(db.String(64), nullable=False, index=True)
+    title = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.String(255), nullable=False)
+    unlocked_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'badge_key', name='uq_user_badge_key'),
+    )
 
 
 class QuizAttempt(db.Model):
@@ -232,6 +256,7 @@ def _repair_schema_for_bootstrap():
     _add_column_if_missing("user", "is_admin", "BOOLEAN NOT NULL DEFAULT FALSE")
     _add_column_if_missing("user", "is_superadmin", "BOOLEAN NOT NULL DEFAULT FALSE")
     _add_column_if_missing("user", "is_active", "BOOLEAN NOT NULL DEFAULT TRUE")
+    _add_column_if_missing("user", "account_type", "VARCHAR(24) NOT NULL DEFAULT 'institution'")
     _add_column_if_missing("user", "institution_id", "INTEGER")
 
     user_columns = {c["name"] for c in inspect(db.engine).get_columns("user")}
@@ -252,11 +277,160 @@ def _repair_schema_for_bootstrap():
     if "institution" in table_names:
         _add_column_if_missing("institution", "is_active", "BOOLEAN NOT NULL DEFAULT TRUE")
 
+    if "access_code" not in table_names:
+        db.session.execute(text(
+            """
+            CREATE TABLE access_code (
+                id INTEGER PRIMARY KEY,
+                code_hash VARCHAR(64) NOT NULL UNIQUE,
+                label VARCHAR(120),
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                max_uses INTEGER NOT NULL DEFAULT 1,
+                use_count INTEGER NOT NULL DEFAULT 0,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at DATETIME,
+                redeemed_at DATETIME,
+                redeemed_by_user_id INTEGER,
+                created_by_user_id INTEGER,
+                FOREIGN KEY(redeemed_by_user_id) REFERENCES "user"(id),
+                FOREIGN KEY(created_by_user_id) REFERENCES "user"(id)
+            )
+            """
+        ))
+        print("✅ Schema repair: created access_code table")
+
+    if "user_gamification" not in table_names:
+        db.session.execute(text(
+            """
+            CREATE TABLE user_gamification (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL UNIQUE,
+                xp INTEGER NOT NULL DEFAULT 0,
+                total_questions_answered INTEGER NOT NULL DEFAULT 0,
+                total_correct_answers INTEGER NOT NULL DEFAULT 0,
+                current_streak_days INTEGER NOT NULL DEFAULT 0,
+                best_streak_days INTEGER NOT NULL DEFAULT 0,
+                last_practice_date DATE,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES "user"(id)
+            )
+            """
+        ))
+        print("✅ Schema repair: created user_gamification table")
+
+    if "user_badge" not in table_names:
+        db.session.execute(text(
+            """
+            CREATE TABLE user_badge (
+                id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                badge_key VARCHAR(64) NOT NULL,
+                title VARCHAR(120) NOT NULL,
+                description VARCHAR(255) NOT NULL,
+                unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES "user"(id),
+                UNIQUE(user_id, badge_key)
+            )
+            """
+        ))
+        print("✅ Schema repair: created user_badge table")
+
     db.session.commit()
 
 
 def _superadmin_exists() -> bool:
     return User.query.filter_by(is_superadmin=True).count() > 0
+
+
+BADGE_RULES = {
+    "first_session": ("First Session", "Complete your first practice session."),
+    "ten_correct_session": ("Sharp Focus", "Answer at least 10 questions correctly in one session."),
+    "streak_7": ("7-Day Streak", "Practice on 7 consecutive days."),
+    "hundred_questions": ("Century Mark", "Answer 100 questions in total."),
+    "mastery_80": ("Category Mastery", "Reach at least 80% mastery in any category (min 20 answered)."),
+}
+
+
+def _normalize_access_code(raw_code: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", (raw_code or "").upper())
+    return cleaned
+
+
+def _access_code_hash(raw_code: str) -> str:
+    return hashlib.sha256(_normalize_access_code(raw_code).encode("utf-8")).hexdigest()
+
+
+def _generate_plain_access_code() -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    chunks = ["".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(3)]
+    return "-".join(chunks)
+
+
+def _issue_unique_access_code() -> tuple[str, str]:
+    for _ in range(25):
+        plain = _generate_plain_access_code()
+        code_hash = _access_code_hash(plain)
+        if AccessCode.query.filter_by(code_hash=code_hash).first() is None:
+            return plain, code_hash
+    raise RuntimeError("Could not generate unique access code")
+
+
+def _find_access_code(raw_code: str):
+    normalized = _normalize_access_code(raw_code)
+    if len(normalized) < 8:
+        return None, "Access code format is invalid."
+    code_hash = _access_code_hash(normalized)
+    code = AccessCode.query.filter_by(code_hash=code_hash).first()
+    if not code:
+        return None, "Access code is invalid."
+    if not code.is_active:
+        return None, "Access code is inactive."
+    if code.expires_at and code.expires_at < datetime.utcnow():
+        return None, "Access code has expired."
+    if code.use_count >= code.max_uses:
+        return None, "Access code has already been used."
+    return code, None
+
+
+def _get_or_create_gamification(user_id: int) -> UserGamification:
+    state = UserGamification.query.filter_by(user_id=user_id).first()
+    if not state:
+        state = UserGamification(user_id=user_id)
+        db.session.add(state)
+        db.session.flush()
+    return state
+
+
+def _level_for_xp(xp: int) -> int:
+    return max(1, (xp // 100) + 1)
+
+
+def _unlock_badge(user_id: int, badge_key: str):
+    if badge_key not in BADGE_RULES:
+        return None
+    existing = UserBadge.query.filter_by(user_id=user_id, badge_key=badge_key).first()
+    if existing:
+        return None
+    title, description = BADGE_RULES[badge_key]
+    badge = UserBadge(user_id=user_id, badge_key=badge_key, title=title, description=description)
+    db.session.add(badge)
+    return badge
+
+
+def _today_question_goal_progress(user_id: int, goal: int = 20):
+    start_of_day = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    completed_today = QuizAttempt.query.filter(
+        QuizAttempt.user_id == user_id,
+        QuizAttempt.is_complete == True,
+        QuizAttempt.timestamp >= start_of_day
+    ).all()
+    answered = sum(a.total_questions for a in completed_today)
+    return {
+        "goal_questions": goal,
+        "answered_today": answered,
+        "remaining": max(goal - answered, 0),
+        "is_complete": answered >= goal,
+    }
 
 
 def _superadmin_exists_safe() -> bool:
@@ -296,6 +470,7 @@ def issue_token(user: User) -> str:
         'is_admin': user.is_admin,
         'is_superadmin': user.is_superadmin,
         'role': role_for_user(user),
+        'account_type': user.account_type,
         'institution_id': user.institution_id,
         'exp': datetime.utcnow() + timedelta(hours=24)
     }, app.config['SECRET_KEY'], algorithm="HS256")
@@ -390,6 +565,23 @@ def validate_institution_code():
     }), 200
 
 
+@app.route('/api/access-codes/validate', methods=['POST'])
+def validate_access_code():
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({'message': 'Invalid JSON body'}), 400
+    raw_code = data.get('accessCode') or ''
+    code, error = _find_access_code(raw_code)
+    if error:
+        return jsonify({'message': error}), 400
+    return jsonify({
+        'valid': True,
+        'is_active': code.is_active,
+        'expires_at': code.expires_at.isoformat() if code.expires_at else None,
+        'remaining_uses': max(code.max_uses - code.use_count, 0),
+    }), 200
+
+
 @app.route('/api/bootstrap/status', methods=['GET'])
 def bootstrap_status():
     expected_token = os.environ.get('SUPERADMIN_BOOTSTRAP_TOKEN')
@@ -456,10 +648,14 @@ def register_user():
     data = request.get_json() or {}
     username = (data.get('username') or '').strip()
     password = data.get('password') or ''
+    account_type = (data.get('accountType') or 'institution').strip().lower()
     institution_code = (data.get('institutionCode') or '').strip().upper()
+    access_code_input = (data.get('accessCode') or '').strip()
 
-    if not username or not password or not institution_code:
-        return jsonify({'message': 'Username, password, and institution code are required'}), 400
+    if account_type not in {'institution', 'individual'}:
+        return jsonify({'message': 'accountType must be institution or individual'}), 400
+    if not username or not password:
+        return jsonify({'message': 'Username and password are required'}), 400
     if len(username) < 3:
         return jsonify({'message': 'Username must be at least 3 characters'}), 400
     if len(password) < 8:
@@ -467,21 +663,46 @@ def register_user():
     if User.query.filter_by(username=username).first():
         return jsonify({'message': 'User already exists'}), 400
 
-    institution = Institution.query.filter_by(registration_code=institution_code, is_active=True).first()
-    if not institution:
-        return jsonify({'message': 'Invalid institution code. Ask your counselor for a valid code.'}), 400
+    institution = None
+    redeemed_code = None
+    if account_type == 'institution':
+        if not institution_code:
+            return jsonify({'message': 'Institution code is required for institution accounts.'}), 400
+        institution = Institution.query.filter_by(registration_code=institution_code, is_active=True).first()
+        if not institution:
+            return jsonify({'message': 'Invalid institution code. Ask your counselor for a valid code.'}), 400
+    else:
+        if not access_code_input:
+            return jsonify({'message': 'Access code is required for individual accounts.'}), 400
+        redeemed_code, code_error = _find_access_code(access_code_input)
+        if code_error:
+            return jsonify({'message': code_error}), 400
 
-    user = User(username=username, institution_id=institution.id, is_admin=False, is_superadmin=False)
+    user = User(
+        username=username,
+        institution_id=institution.id if institution else None,
+        is_admin=False,
+        is_superadmin=False,
+        account_type=account_type,
+    )
     user.set_password(password)
 
     db.session.add(user)
+    db.session.flush()
+
+    if redeemed_code:
+        redeemed_code.use_count += 1
+        redeemed_code.redeemed_by_user_id = user.id
+        redeemed_code.redeemed_at = datetime.utcnow()
+
     db.session.commit()
 
     return jsonify({
         'id': user.id,
         'name': user.username,
-        'institution_name': institution.name,
-        'institution_id': institution.id,
+        'account_type': user.account_type,
+        'institution_name': institution.name if institution else None,
+        'institution_id': institution.id if institution else None,
         'role': role_for_user(user)
     }), 201
 
@@ -505,7 +726,7 @@ def verify_and_get_token():
     if not user.is_active:
         return jsonify({"message": "Your account is deactivated. Contact your administrator."}), 403
 
-    if user.institution_id is not None:
+    if user.account_type == "institution" and user.institution_id is not None:
         institution = Institution.query.get(user.institution_id)
         if not institution or not institution.is_active:
             return jsonify({"message": "Your institution is currently inactive."}), 403
@@ -520,6 +741,7 @@ def verify_and_get_token():
         'is_superadmin': user.is_superadmin,
         'is_super_admin': user.is_superadmin,
         'role': role_for_user(user),
+        'account_type': user.account_type,
         'institution_id': user.institution_id,
         'institution_name': user.institution.name if user.institution else None,
         'is_active': user.is_active,
@@ -536,6 +758,7 @@ def session_me(current_user):
         'is_superadmin': current_user.is_superadmin,
         'is_super_admin': current_user.is_superadmin,
         'role': role_for_user(current_user),
+        'account_type': current_user.account_type,
         'institution_id': current_user.institution_id,
         'institution_name': current_user.institution.name if current_user.institution else None,
         'is_active': current_user.is_active,
@@ -548,13 +771,96 @@ def superadmin_summary(current_user):
     total_institutions = Institution.query.count()
     total_users = User.query.filter_by(is_superadmin=False).count()
     total_admins = User.query.filter_by(is_admin=True, is_superadmin=False).count()
+    total_individual_users = User.query.filter_by(account_type='individual', is_superadmin=False).count()
+    active_access_codes = AccessCode.query.filter_by(is_active=True).count()
     total_quizzes = QuizAttempt.query.filter_by(is_complete=True).count()
     return jsonify({
         'total_institutions': total_institutions,
         'total_users': total_users,
         'total_admins': total_admins,
+        'total_individual_users': total_individual_users,
+        'active_access_codes': active_access_codes,
         'total_quizzes_taken': total_quizzes,
     }), 200
+
+
+@app.route('/api/superadmin/access-codes', methods=['GET'])
+@superadmin_required
+def list_access_codes(current_user):
+    codes = AccessCode.query.order_by(AccessCode.created_at.desc()).limit(200).all()
+    return jsonify([
+        {
+            'id': code.id,
+            'label': code.label,
+            'is_active': code.is_active,
+            'max_uses': code.max_uses,
+            'use_count': code.use_count,
+            'created_at': code.created_at.isoformat(),
+            'expires_at': code.expires_at.isoformat() if code.expires_at else None,
+            'redeemed_at': code.redeemed_at.isoformat() if code.redeemed_at else None,
+            'redeemed_by': code.redeemed_by_user.username if code.redeemed_by_user else None,
+        }
+        for code in codes
+    ]), 200
+
+
+@app.route('/api/superadmin/access-codes', methods=['POST'])
+@superadmin_required
+def create_access_codes(current_user):
+    data = request.get_json(silent=True) or {}
+    quantity = data.get('quantity', 1)
+    label = (data.get('label') or '').strip() or None
+    max_uses = data.get('max_uses', 1)
+    expires_at_raw = (data.get('expires_at') or '').strip()
+
+    try:
+        quantity = int(quantity)
+        max_uses = int(max_uses)
+    except (TypeError, ValueError):
+        return jsonify({'message': 'quantity and max_uses must be integers'}), 400
+    if quantity < 1 or quantity > 200:
+        return jsonify({'message': 'quantity must be between 1 and 200'}), 400
+    if max_uses < 1 or max_uses > 1000:
+        return jsonify({'message': 'max_uses must be between 1 and 1000'}), 400
+
+    expires_at = None
+    if expires_at_raw:
+        try:
+            expires_at = datetime.fromisoformat(expires_at_raw)
+        except ValueError:
+            return jsonify({'message': 'expires_at must be an ISO-8601 datetime'}), 400
+
+    created = []
+    for _ in range(quantity):
+        plain, code_hash = _issue_unique_access_code()
+        code = AccessCode(
+            code_hash=code_hash,
+            label=label,
+            max_uses=max_uses,
+            use_count=0,
+            is_active=True,
+            created_by_user_id=current_user.id,
+            expires_at=expires_at,
+        )
+        db.session.add(code)
+        created.append({'code': plain, 'label': label, 'max_uses': max_uses, 'expires_at': expires_at.isoformat() if expires_at else None})
+    db.session.commit()
+    return jsonify({'created': created, 'count': len(created)}), 201
+
+
+@app.route('/api/superadmin/access-codes/<int:code_id>/status', methods=['PATCH'])
+@superadmin_required
+def set_access_code_status(current_user, code_id):
+    data = request.get_json(silent=True) or {}
+    next_status = data.get('is_active')
+    if not isinstance(next_status, bool):
+        return jsonify({'message': 'is_active must be true or false'}), 400
+    code = AccessCode.query.get(code_id)
+    if not code:
+        return jsonify({'message': 'Access code not found'}), 404
+    code.is_active = next_status
+    db.session.commit()
+    return jsonify({'id': code.id, 'is_active': code.is_active}), 200
 
 
 @app.route('/api/superadmin/institutions', methods=['GET'])
@@ -837,6 +1143,9 @@ def submit_quiz(current_user):
     if not attempt:
         return jsonify({'message': 'Attempt not found'}), 404
 
+    if attempt.is_complete:
+        return jsonify({'message': 'Quiz already submitted', 'attempt': attempt.to_dict()}), 200
+
     questions = Question.query.filter(Question.id.in_(attempt.question_ids)).all()
     question_map = {q.id: q for q in questions}
     results = {}
@@ -857,9 +1166,80 @@ def submit_quiz(current_user):
     attempt.score = int((total_correct / attempt.total_questions) * 100) if attempt.total_questions > 0 else 0
     attempt.is_complete = True
     flag_modified(attempt, "results_by_category")
-    db.session.commit()
+    total_answered = len(attempt.answers or {})
 
-    return jsonify({'message': 'Quiz submitted', 'attempt': attempt.to_dict()}), 200
+    state = _get_or_create_gamification(current_user.id)
+    today = datetime.utcnow().date()
+    previous_date = state.last_practice_date
+    if previous_date == today:
+        streak_increment = 0
+    elif previous_date == (today - timedelta(days=1)):
+        state.current_streak_days += 1
+        streak_increment = 1
+    else:
+        state.current_streak_days = 1
+        streak_increment = 1
+    state.last_practice_date = today
+    state.best_streak_days = max(state.best_streak_days, state.current_streak_days)
+
+    xp_earned = 10 + (total_correct * 2)
+    if attempt.score and attempt.score >= 80:
+        xp_earned += 10
+    if streak_increment:
+        xp_earned += 5
+    state.xp += xp_earned
+    state.total_questions_answered += total_answered
+    state.total_correct_answers += total_correct
+
+    unlocked = []
+    if state.total_questions_answered >= 1:
+        badge = _unlock_badge(current_user.id, "first_session")
+        if badge:
+            unlocked.append({'key': badge.badge_key, 'title': badge.title})
+    if total_correct >= 10:
+        badge = _unlock_badge(current_user.id, "ten_correct_session")
+        if badge:
+            unlocked.append({'key': badge.badge_key, 'title': badge.title})
+    if state.current_streak_days >= 7:
+        badge = _unlock_badge(current_user.id, "streak_7")
+        if badge:
+            unlocked.append({'key': badge.badge_key, 'title': badge.title})
+    if state.total_questions_answered >= 100:
+        badge = _unlock_badge(current_user.id, "hundred_questions")
+        if badge:
+            unlocked.append({'key': badge.badge_key, 'title': badge.title})
+    mastery = User.query.filter_by(id=current_user.id).first()
+    if mastery:
+        perf = QuizAttempt.query.filter_by(user_id=current_user.id, is_complete=True).all()
+        totals = {}
+        for item in perf:
+            if not item.results_by_category:
+                continue
+            for category, result in item.results_by_category.items():
+                totals.setdefault(category, {'correct': 0, 'total': 0})
+                totals[category]['correct'] += result['correct']
+                totals[category]['total'] += result['total']
+        if any(v['total'] >= 20 and (v['correct'] / v['total']) >= 0.8 for v in totals.values()):
+            badge = _unlock_badge(current_user.id, "mastery_80")
+            if badge:
+                unlocked.append({'key': badge.badge_key, 'title': badge.title})
+
+    db.session.commit()
+    goal = _today_question_goal_progress(current_user.id)
+
+    return jsonify({
+        'message': 'Quiz submitted',
+        'attempt': attempt.to_dict(),
+        'gamification': {
+            'xp_earned': xp_earned,
+            'total_xp': state.xp,
+            'level': _level_for_xp(state.xp),
+            'current_streak_days': state.current_streak_days,
+            'best_streak_days': state.best_streak_days,
+            'daily_goal': goal,
+            'badges_unlocked': unlocked,
+        }
+    }), 200
 
 
 @app.route('/api/quiz/attempt/<int:attempt_id>/results', methods=['GET'])
@@ -926,6 +1306,50 @@ def save_answer(current_user):
 def get_user_attempts(current_user):
     attempts = QuizAttempt.query.filter_by(user_id=current_user.id).order_by(QuizAttempt.timestamp.desc()).all()
     return jsonify([a.to_dict() for a in attempts])
+
+
+@app.route('/api/user/gamification-summary', methods=['GET'])
+@token_required
+def get_user_gamification_summary(current_user):
+    state = _get_or_create_gamification(current_user.id)
+    attempts = QuizAttempt.query.filter_by(user_id=current_user.id, is_complete=True).order_by(QuizAttempt.timestamp.desc()).limit(10).all()
+    category_totals = {}
+    for attempt in QuizAttempt.query.filter_by(user_id=current_user.id, is_complete=True).all():
+        if not attempt.results_by_category:
+            continue
+        for category, result in attempt.results_by_category.items():
+            category_totals.setdefault(category, {'correct': 0, 'total': 0})
+            category_totals[category]['correct'] += result['correct']
+            category_totals[category]['total'] += result['total']
+    mastery = [{
+        'category': category,
+        'percent': round((vals['correct'] / vals['total']) * 100, 1) if vals['total'] else 0,
+        'answered': vals['total'],
+    } for category, vals in category_totals.items()]
+    mastery.sort(key=lambda x: x['percent'], reverse=True)
+
+    badges = UserBadge.query.filter_by(user_id=current_user.id).order_by(UserBadge.unlocked_at.desc()).all()
+    db.session.commit()
+    return jsonify({
+        'xp': state.xp,
+        'level': _level_for_xp(state.xp),
+        'current_streak_days': state.current_streak_days,
+        'best_streak_days': state.best_streak_days,
+        'accuracy_percent': round((state.total_correct_answers / state.total_questions_answered) * 100, 1) if state.total_questions_answered else 0,
+        'total_questions_answered': state.total_questions_answered,
+        'recent_scores': [a.score for a in attempts if a.score is not None][:5],
+        'daily_goal': _today_question_goal_progress(current_user.id),
+        'mastery': mastery[:8],
+        'badges': [
+            {
+                'key': badge.badge_key,
+                'title': badge.title,
+                'description': badge.description,
+                'unlocked_at': badge.unlocked_at.isoformat(),
+            }
+            for badge in badges
+        ],
+    }), 200
 
 
 @app.route('/api/quiz/resume/<int:attempt_id>', methods=['GET'])
