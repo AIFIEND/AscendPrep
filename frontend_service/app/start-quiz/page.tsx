@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { apiFetch, getJson, postJson } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ type Config = {
 
 export default function StartQuizPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
   const token = session?.user?.backendToken;
 
@@ -36,6 +37,7 @@ export default function StartQuizPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [maxAvailable, setMaxAvailable] = useState(0);
   const [questionCount, setQuestionCount] = useState(10);
+  const isTargetedMode = searchParams.get("mode") === "targeted";
 
   useEffect(() => {
     apiFetch("/api/quiz-config")
@@ -96,19 +98,20 @@ export default function StartQuizPage() {
     setStarting(true);
     try {
       const res = await postJson(
-        "/api/quiz/start",
-        {
-          categories: selectedCats,
-          difficulties: selectedDiffs,
-          numQuestions: questionCount,
-          testName: "Custom Practice",
-        },
+        isTargetedMode ? "/api/quiz/start-targeted" : "/api/quiz/start",
+        isTargetedMode
+          ? { difficulty: selectedDiffs[0], numQuestions: questionCount }
+          : {
+              categories: selectedCats,
+              difficulties: selectedDiffs,
+              numQuestions: questionCount,
+              testName: "Custom Practice",
+            },
         {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
 
-      toast.success("Quiz started. Good luck!");
       toast.success("Quiz started. Good luck!");
       router.push(`/practice?attemptId=${res.attemptId}&numQuestions=${questionCount}`);
     } catch (err: any) {
@@ -126,8 +129,8 @@ export default function StartQuizPage() {
     <div className="container mx-auto p-4 max-w-2xl">
       <Card>
         <CardHeader>
-          <CardTitle>Start a Practice Quiz</CardTitle>
-          <CardDescription>Select your preferences below.</CardDescription>
+          <CardTitle>{isTargetedMode ? "Start a Targeted Quiz" : "Start a Practice Quiz"}</CardTitle>
+          <CardDescription>{isTargetedMode ? "Questions will prioritize your focus areas." : "Select your preferences below."}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {errorMsg && (
