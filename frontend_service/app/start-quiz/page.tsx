@@ -46,16 +46,26 @@ export default function StartQuizPage() {
   }, [requestedMode]);
 
   useEffect(() => {
-    apiFetch("/api/quiz-config")
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+
+    apiFetch("/api/quiz-config", { signal: controller.signal, cache: "no-store" })
       .then((res) => res.json())
       .then((data) => {
         setConfig(data);
         setLoading(false);
       })
-      .catch(() => {
-        setErrorMsg("Could not load quiz configuration.");
+      .catch((err) => {
+        const timeoutMessage = err instanceof DOMException && err.name === "AbortError";
+        setErrorMsg(timeoutMessage ? "Loading quiz configuration timed out. Please try again." : "Could not load quiz configuration.");
         setLoading(false);
-      });
+      })
+      .finally(() => window.clearTimeout(timeoutId));
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
   }, []);
 
   useEffect(() => {
@@ -136,7 +146,7 @@ export default function StartQuizPage() {
   };
 
   if (loading) return <div className="page-wrap py-10 text-sm text-muted-foreground">Loading configuration...</div>;
-  if (!config) return <div className="page-wrap py-10 text-sm text-destructive">Error loading config.</div>;
+  if (!config) return <div className="page-wrap py-10 text-sm text-destructive">{errorMsg || "Error loading config."}</div>;
 
   return (
     <div className="page-wrap py-8 sm:py-10">
