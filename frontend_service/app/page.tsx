@@ -11,7 +11,7 @@ export default async function HomePage() {
     return (
       <main className="page-wrap py-20">
         <section className="mx-auto max-w-3xl text-center space-y-6">
-          <p className="eyebrow">PeakQuest</p>
+          <p className="eyebrow">AscendPrep</p>
           <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">Practice smarter. Improve faster.</h1>
           <p className="mx-auto max-w-xl text-muted-foreground">
             Build confidence with short focused quizzes, instant explanations, and clear progress tracking.
