@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, Suspense } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { Question } from "@/types";
@@ -28,8 +28,6 @@ function PracticePageContent() {
   const [showScore, setShowScore] = useState(false);
   const [score, setScore] = useState<number | null>(null);
   const [showFeedback, setShowFeedback] = useState(false);
-
-  const quizCreationInitiated = useRef(false);
 
   const attemptIdParam = searchParams.get("attemptId");
   const categoriesParam = searchParams.get("categories");
@@ -63,8 +61,10 @@ function PracticePageContent() {
           const firstUnansweredIndex = trimmedQuestions.findIndex((q: Question) => !savedAnswers.hasOwnProperty(q.id));
           setCurrentQuestionIndex(firstUnansweredIndex === -1 ? trimmedQuestions.length - 1 : firstUnansweredIndex);
         } else {
-          if (quizCreationInitiated.current) return;
-          quizCreationInitiated.current = true;
+          if (!categoriesParam && !difficultiesParam) {
+            router.replace("/start-quiz");
+            return;
+          }
 
           const cats = categoriesParam?.split(",") || [];
           const diffs = difficultiesParam?.split(",") || [];
