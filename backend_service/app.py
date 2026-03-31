@@ -3,6 +3,7 @@ import re
 import hmac
 import hashlib
 import secrets
+import logging
 import csv
 import io
 from datetime import datetime, timedelta, date
@@ -16,12 +17,14 @@ from dotenv import load_dotenv
 import random
 from time import time
 from collections import defaultdict
+from threading import Lock
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.exc import SQLAlchemyError
 
 load_dotenv()
 
 app = Flask(__name__)
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
 
 def _require_env(name: str) -> str:
@@ -41,6 +44,18 @@ def _is_production() -> bool:
     return (os.environ.get("FLASK_ENV") or "").strip().lower() in {"production", "prod"}
 
 
+def _is_placeholder_secret(value: str) -> bool:
+    lowered = (value or "").strip().lower()
+    return lowered in {
+        "",
+        "changeme",
+        "change-me",
+        "replace-me",
+        "dev-secret-change-me",
+        "change-this-to-a-random-secret-key-in-production",
+    }
+
+
 app.config["SECRET_KEY"] = _require_env("SECRET_KEY")
 database_url = _require_env("SQLALCHEMY_DATABASE_URI")
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url
@@ -48,14 +63,15 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 if _is_production():
     if database_url.startswith("sqlite"):
-        print("⚠️ Startup warning: SQLALCHEMY_DATABASE_URI uses SQLite in production. Use Postgres for real deployments.")
-    if app.config["SECRET_KEY"] in {"change-this-to-a-random-secret-key-in-production", "dev-secret-change-me"}:
-        print("⚠️ Startup warning: SECRET_KEY appears to be a placeholder. Set a strong random value in production.")
-
-if _is_production():
+        raise RuntimeError("SQLALCHEMY_DATABASE_URI cannot use SQLite in production. Configure a persistent Postgres database.")
+    if _is_placeholder_secret(app.config["SECRET_KEY"]):
+        raise RuntimeError("SECRET_KEY must be set to a strong non-placeholder value in production.")
+    _require_env("FRONTEND_ORIGIN")
+    _require_env("NEXTAUTH_SECRET")
+    if not any((os.environ.get(name) or "").strip() for name in ("API_URL", "NEXT_PUBLIC_API_URL", "NEXT_PUBLIC_API_BASE")):
+        raise RuntimeError("Set one of API_URL, NEXT_PUBLIC_API_URL, or NEXT_PUBLIC_API_BASE in production.")
+else:
     _warn_env("SUPERADMIN_BOOTSTRAP_TOKEN")
-    _warn_env("NEXTAUTH_SECRET")
-    _warn_env("NEXTAUTH_URL")
 
 if database_url.startswith("postgres") and "sslmode=" not in database_url:
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
@@ -87,6 +103,8 @@ def _cors_origin_values(raw_origins: str):
 
 
 FRONTEND_ORIGINS = _cors_origin_values(_frontend_origin_raw)
+JWT_ISSUER = (os.environ.get("JWT_ISSUER") or "ascendprep-backend").strip()
+JWT_AUDIENCE = (os.environ.get("JWT_AUDIENCE") or "ascendprep-frontend").strip()
 
 
 # 3. Initialize CORS 
@@ -103,16 +121,29 @@ bcrypt = Bcrypt(app)
 
 LOGIN_RATE_WINDOW = 5 * 60
 LOGIN_RATE_MAX = 10
-_login_attempts = defaultdict(list)
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+_login_attempts_lock = Lock()
 
 
-def _login_rate_limited(ip: str) -> bool:
+def _login_rate_limited(username: str, ip: str) -> bool:
     now = time()
-    _login_attempts[ip] = [t for t in _login_attempts[ip] if now - t < LOGIN_RATE_WINDOW]
-    if len(_login_attempts[ip]) >= LOGIN_RATE_MAX:
-        return True
-    _login_attempts[ip].append(now)
+    key = f"{(username or '').lower()}|{ip or 'unknown'}"
+    with _login_attempts_lock:
+        _login_attempts[key] = [t for t in _login_attempts[key] if now - t < LOGIN_RATE_WINDOW]
+        if len(_login_attempts[key]) >= LOGIN_RATE_MAX:
+            return True
+        _login_attempts[key].append(now)
+
+        if len(_login_attempts) > 5000:
+            cutoff = now - LOGIN_RATE_WINDOW
+            stale_keys = [k for k, values in _login_attempts.items() if not values or max(values) < cutoff]
+            for stale in stale_keys:
+                _login_attempts.pop(stale, None)
     return False
+
+
+def _normalize_username(value: str) -> str:
+    return (value or "").strip().lower()
 
 
 class Institution(db.Model):
@@ -471,7 +502,9 @@ def issue_token(user: User) -> str:
         'role': role_for_user(user),
         'account_type': user.account_type,
         'institution_id': user.institution_id,
-        'exp': datetime.utcnow() + timedelta(hours=24)
+        'iss': JWT_ISSUER,
+        'aud': JWT_AUDIENCE,
+        'exp': datetime.utcnow() + timedelta(hours=8)
     }, app.config['SECRET_KEY'], algorithm="HS256")
 
 
@@ -488,7 +521,9 @@ def token_required(f):
                 token,
                 app.config["SECRET_KEY"],
                 algorithms=["HS256"],
-                options={"require": ["exp"]},
+                issuer=JWT_ISSUER,
+                audience=JWT_AUDIENCE,
+                options={"require": ["exp", "iss", "aud"]},
                 leeway=30,
             )
             user_id = payload.get("user_id")
@@ -518,8 +553,10 @@ def token_required(f):
 def institution_admin_required(f):
     @wraps(f)
     def wrapper(current_user, *args, **kwargs):
-        if not current_user.is_admin or current_user.is_superadmin:
+        if not (current_user.is_admin or current_user.is_superadmin):
             return jsonify({'message': 'Institution admin privileges required'}), 403
+        if current_user.is_superadmin:
+            return f(current_user, *args, **kwargs)
         if not current_user.institution_id:
             return jsonify({'message': 'No institution assigned'}), 403
         return f(current_user, *args, **kwargs)
@@ -612,7 +649,7 @@ def bootstrap_superadmin():
         return jsonify({'message': 'Bootstrap unavailable: database not ready or migrations missing.'}), 503
 
     data = request.get_json() or {}
-    username = (data.get('username') or '').strip()
+    username = _normalize_username(data.get('username') or '')
     password = data.get('password') or ''
     bootstrap_token = (data.get('bootstrapToken') or '').strip()
     expected_token = (os.environ.get('SUPERADMIN_BOOTSTRAP_TOKEN') or '').strip()
@@ -628,7 +665,7 @@ def bootstrap_superadmin():
         return jsonify({'message': 'Username must be at least 3 characters'}), 400
     if len(password) < 8:
         return jsonify({'message': 'Password must be at least 8 characters'}), 400
-    if User.query.filter_by(username=username).first():
+    if User.query.filter(db.func.lower(User.username) == username).first():
         return jsonify({'message': 'Username already exists'}), 400
 
     user = User(username=username, is_superadmin=True, is_admin=True, institution_id=None, is_active=True)
@@ -653,7 +690,7 @@ def register_user():
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return _json_error("Invalid JSON body", 400, "invalid_json")
-    username = (data.get('username') or '').strip()
+    username = _normalize_username(data.get('username') or '')
     password = data.get('password') or ''
     account_type = (data.get('accountType') or 'institution').strip().lower()
     institution_code = _normalize_institution_code(data.get('institutionCode') or '')
@@ -667,7 +704,7 @@ def register_user():
         return _json_error('Username must be at least 3 characters', 400, "username_too_short")
     if len(password) < 8:
         return _json_error('Password must be at least 8 characters', 400, "password_too_short")
-    if User.query.filter_by(username=username).first():
+    if User.query.filter(db.func.lower(User.username) == username).first():
         return _json_error('User already exists', 409, "username_taken")
 
     institution = None
@@ -681,9 +718,7 @@ def register_user():
     else:
         if not access_code_input:
             return _json_error('Access code is required for individual accounts.', 400, "access_code_required")
-        redeemed_code, code_error = _find_access_code(access_code_input)
-        if code_error:
-            return _json_error(code_error, 400, "invalid_access_code")
+        access_code_hash = _access_code_hash(access_code_input)
 
     user = User(
         username=username,
@@ -695,6 +730,22 @@ def register_user():
     user.set_password(password)
 
     try:
+        if account_type == "individual":
+            redeemed_code = (
+                AccessCode.query
+                .filter_by(code_hash=access_code_hash)
+                .with_for_update()
+                .first()
+            )
+            if not redeemed_code:
+                return _json_error('Access code is invalid.', 400, "invalid_access_code")
+            if not redeemed_code.is_active:
+                return _json_error('Access code is inactive.', 400, "invalid_access_code")
+            if redeemed_code.expires_at and redeemed_code.expires_at < datetime.utcnow():
+                return _json_error('Access code has expired.', 400, "invalid_access_code")
+            if redeemed_code.use_count >= redeemed_code.max_uses:
+                return _json_error('Access code has already been used.', 400, "invalid_access_code")
+
         db.session.add(user)
         db.session.flush()
         if redeemed_code:
@@ -720,18 +771,20 @@ def register_user():
 @app.route('/api/auth/credentials', methods=['POST'])
 def verify_and_get_token():
     ip = request.headers.get('X-Forwarded-For', request.remote_addr or 'unknown').split(',')[0].strip()
-    if _login_rate_limited(ip):
-        return jsonify({'message': 'Too many login attempts, please try again later'}), 429
 
     data = request.get_json() or {}
-    username = (data.get('username') or '').strip()
+    username = _normalize_username(data.get('username') or '')
     password = data.get('password') or ''
+    if _login_rate_limited(username, ip):
+        app.logger.warning("login_rate_limited username=%s ip=%s", username or "<empty>", ip)
+        return jsonify({'message': 'Too many login attempts for this account. Please wait a few minutes and try again.'}), 429
 
     if not username or not password:
         return jsonify({"message": "Username and password required"}), 400
 
-    user = User.query.filter_by(username=username).first()
+    user = User.query.filter(db.func.lower(User.username) == username).first()
     if not user or not user.check_password(password):
+        app.logger.warning("login_failed username=%s ip=%s", username, ip)
         return jsonify({"message": "Invalid username or password"}), 401
     if not user.is_active:
         return jsonify({"message": "Your account is deactivated. Contact your administrator."}), 403
@@ -977,6 +1030,7 @@ def update_institution_status(current_user, institution_id):
         return jsonify({'message': 'is_active must be true or false'}), 400
     institution.is_active = next_status
     db.session.commit()
+    app.logger.info("institution_status_changed actor_user_id=%s institution_id=%s is_active=%s", current_user.id, institution_id, next_status)
     return jsonify({'is_active': institution.is_active}), 200
 
 
@@ -997,6 +1051,7 @@ def set_institution_admin(current_user, institution_id):
 
     user.is_admin = make_admin
     db.session.commit()
+    app.logger.info("admin_role_changed actor_user_id=%s target_user_id=%s institution_id=%s is_admin=%s", current_user.id, user.id, institution_id, make_admin)
     return jsonify({'id': user.id, 'username': user.username, 'is_admin': user.is_admin}), 200
 
 
@@ -1016,6 +1071,7 @@ def set_user_active_status(current_user, user_id):
 
     user.is_active = next_status
     db.session.commit()
+    app.logger.info("user_status_changed actor_user_id=%s target_user_id=%s is_active=%s", current_user.id, user.id, next_status)
     return jsonify({'id': user.id, 'username': user.username, 'is_active': user.is_active}), 200
 
 
@@ -1035,6 +1091,7 @@ def set_student_active_status(current_user, user_id):
 
     user.is_active = next_status
     db.session.commit()
+    app.logger.info("student_status_changed actor_user_id=%s target_user_id=%s institution_id=%s is_active=%s", current_user.id, user.id, current_user.institution_id, next_status)
     return jsonify({'id': user.id, 'username': user.username, 'is_active': user.is_active}), 200
 
 
@@ -1251,6 +1308,14 @@ def create_assignment(current_user):
     for user_id in selected_user_ids:
         db.session.add(AssignmentRecipient(assignment_id=assignment.id, user_id=int(user_id)))
     db.session.commit()
+    app.logger.info(
+        "assignment_created actor_user_id=%s institution_id=%s assignment_id=%s assigned_count=%s mode=%s",
+        current_user.id,
+        current_user.institution_id,
+        assignment.id,
+        len(selected_user_ids),
+        mode,
+    )
     return jsonify({"id": assignment.id, "assigned_count": len(selected_user_ids)}), 201
 
 
@@ -1314,20 +1379,31 @@ def list_user_assignments(current_user):
         .all()
     )
 
-    completed_attempts = QuizAttempt.query.filter(
+    assignment_attempts = QuizAttempt.query.filter(
         QuizAttempt.user_id == current_user.id,
         QuizAttempt.assignment_id.in_(assignment_ids),
-        QuizAttempt.is_complete == True,
     ).all()
-    completion_map = {}
-    for attempt in completed_attempts:
-        existing = completion_map.get(attempt.assignment_id)
+    latest_attempt_map = {}
+    completed_map = {}
+    in_progress_map = {}
+    for attempt in assignment_attempts:
+        existing = latest_attempt_map.get(attempt.assignment_id)
         if not existing or attempt.timestamp > existing.timestamp:
-            completion_map[attempt.assignment_id] = attempt
+            latest_attempt_map[attempt.assignment_id] = attempt
+        if attempt.is_complete:
+            existing_completed = completed_map.get(attempt.assignment_id)
+            if not existing_completed or attempt.timestamp > existing_completed.timestamp:
+                completed_map[attempt.assignment_id] = attempt
+        else:
+            existing_in_progress = in_progress_map.get(attempt.assignment_id)
+            if not existing_in_progress or attempt.timestamp > existing_in_progress.timestamp:
+                in_progress_map[attempt.assignment_id] = attempt
 
     payload = []
     for assignment in assignments:
-        attempt = completion_map.get(assignment.id)
+        latest = latest_attempt_map.get(assignment.id)
+        attempt = completed_map.get(assignment.id)
+        in_progress = in_progress_map.get(assignment.id)
         payload.append({
             "id": assignment.id,
             "title": assignment.title,
@@ -1342,8 +1418,9 @@ def list_user_assignments(current_user):
             "show_explanations": assignment.show_explanations if assignment.show_explanations is not None else True,
             "minimum_passing_score": assignment.minimum_passing_score,
             "is_completed": attempt is not None,
-            "latest_attempt_id": attempt.id if attempt else None,
-            "latest_score": attempt.score if attempt else None,
+            "latest_attempt_id": latest.id if latest else None,
+            "latest_score": latest.score if latest and latest.is_complete else None,
+            "in_progress_attempt_id": in_progress.id if in_progress else None,
         })
 
     return jsonify(payload), 200
@@ -1434,6 +1511,34 @@ def start_assignment_quiz(current_user):
     recipient = AssignmentRecipient.query.filter_by(assignment_id=assignment.id, user_id=current_user.id).first()
     if not recipient:
         return _json_error("You are not assigned to this assignment.", 403, "assignment_forbidden")
+    if assignment.due_date and assignment.due_date < datetime.utcnow():
+        return _json_error("This assignment is past due and can no longer be started.", 403, "assignment_past_due")
+
+    existing_attempt = QuizAttempt.query.filter_by(
+        user_id=current_user.id,
+        assignment_id=assignment.id,
+        is_complete=False,
+    ).order_by(QuizAttempt.timestamp.desc()).first()
+    if existing_attempt:
+        qs = Question.query.filter(Question.id.in_(existing_attempt.question_ids or [])).all()
+        id_to_q = {q.id: q for q in qs}
+        ordered = [id_to_q[qid] for qid in (existing_attempt.question_ids or []) if qid in id_to_q]
+        return jsonify({
+            "attemptId": existing_attempt.id,
+            "questions": [q.to_dict() for q in ordered],
+            "resumed": True,
+            "startedAt": existing_attempt.timestamp.isoformat() if existing_attempt.timestamp else None,
+            "timeLimitMinutes": assignment.time_limit_minutes,
+            "dueDate": assignment.due_date.isoformat() if assignment.due_date else None,
+        }), 200
+
+    completed_attempt = QuizAttempt.query.filter_by(
+        user_id=current_user.id,
+        assignment_id=assignment.id,
+        is_complete=True,
+    ).first()
+    if completed_attempt:
+        return _json_error("Assignment already completed. Multiple attempts are not allowed.", 409, "assignment_already_completed")
 
     q = Question.query
     if assignment.categories:
@@ -1459,7 +1564,15 @@ def start_assignment_quiz(current_user):
     )
     db.session.add(attempt)
     db.session.commit()
-    return jsonify({"attemptId": attempt.id, "questions": [q.to_dict() for q in selected]}), 200
+    app.logger.info("assignment_attempt_started assignment_id=%s attempt_id=%s user_id=%s", assignment.id, attempt.id, current_user.id)
+    return jsonify({
+        "attemptId": attempt.id,
+        "questions": [q.to_dict() for q in selected],
+        "resumed": False,
+        "startedAt": attempt.timestamp.isoformat() if attempt.timestamp else None,
+        "timeLimitMinutes": assignment.time_limit_minutes,
+        "dueDate": assignment.due_date.isoformat() if assignment.due_date else None,
+    }), 200
 
 
 @app.route('/api/quiz/start', methods=['POST'])
@@ -1528,6 +1641,17 @@ def submit_quiz(current_user):
 
     if attempt.is_complete:
         return jsonify({'message': 'Quiz already submitted', 'attempt': attempt.to_dict()}), 200
+    if attempt.assignment_id:
+        assignment = Assignment.query.get(attempt.assignment_id)
+        now = datetime.utcnow()
+        if assignment:
+            if assignment.due_date and now > assignment.due_date:
+                return _json_error("Assignment due date has passed. Submission rejected.", 403, "assignment_due_date_passed")
+            if assignment.time_limit_minutes:
+                started_at = attempt.timestamp or now
+                elapsed_seconds = (now - started_at).total_seconds()
+                if elapsed_seconds > assignment.time_limit_minutes * 60:
+                    return _json_error("Time limit exceeded for this assignment.", 403, "assignment_time_limit_exceeded")
 
     questions = Question.query.filter(Question.id.in_(attempt.question_ids)).all()
     question_map = {q.id: q for q in questions}
@@ -1608,6 +1732,8 @@ def submit_quiz(current_user):
                 unlocked.append({'key': badge.badge_key, 'title': badge.title})
 
     db.session.commit()
+    if attempt.assignment_id:
+        app.logger.info("assignment_submitted assignment_id=%s attempt_id=%s user_id=%s score=%s", attempt.assignment_id, attempt.id, current_user.id, attempt.score)
     goal = _today_question_goal_progress(current_user.id)
 
     return jsonify({
@@ -1709,6 +1835,19 @@ def save_answer(current_user):
     attempt = QuizAttempt.query.filter_by(id=attempt_id, user_id=current_user.id).first()
     if not attempt:
         return jsonify({'message': 'Attempt not found'}), 404
+    if attempt.is_complete:
+        return _json_error("Cannot modify answers for a completed attempt.", 403, "attempt_immutable")
+    if attempt.assignment_id:
+        assignment = Assignment.query.get(attempt.assignment_id)
+        now = datetime.utcnow()
+        if assignment:
+            if assignment.due_date and now > assignment.due_date:
+                return _json_error("Cannot save answers after assignment due date.", 403, "assignment_due_date_passed")
+            if assignment.time_limit_minutes:
+                started_at = attempt.timestamp or now
+                elapsed_seconds = (now - started_at).total_seconds()
+                if elapsed_seconds > assignment.time_limit_minutes * 60:
+                    return _json_error("Cannot save answers after assignment time limit expires.", 403, "assignment_time_limit_exceeded")
     new_answers = attempt.answers.copy()
     new_answers[str(question_id)] = answer
     attempt.answers = new_answers
@@ -1789,7 +1928,17 @@ def resume_quiz(current_user, attempt_id):
     qs = Question.query.filter(Question.id.in_(question_ids)).all()
     id_to_q = {q.id: q for q in qs}
     ordered = [id_to_q[qid] for qid in question_ids if qid in id_to_q]
-    return jsonify({'questions': [q.to_dict() for q in ordered], 'answersSoFar': attempt.answers or {}}), 200
+    assignment = Assignment.query.get(attempt.assignment_id) if attempt.assignment_id else None
+    return jsonify({
+        'questions': [q.to_dict() for q in ordered],
+        'answersSoFar': attempt.answers or {},
+        'attempt': attempt.to_dict(),
+        'assignment': {
+            'id': assignment.id,
+            'due_date': assignment.due_date.isoformat() if assignment and assignment.due_date else None,
+            'time_limit_minutes': assignment.time_limit_minutes if assignment else None,
+        } if assignment else None,
+    }), 200
 
 
 @app.route('/api/questions')

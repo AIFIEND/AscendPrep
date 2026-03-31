@@ -47,6 +47,7 @@ type LearnerAssignment = {
   is_completed: boolean;
   latest_attempt_id: number | null;
   latest_score: number | null;
+  in_progress_attempt_id: number | null;
 };
 
 export function StudentDashboardClient() {
@@ -171,9 +172,13 @@ export function StudentDashboardClient() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button
                     size="sm"
-                    disabled={startingAssignmentId === assignment.id}
+                    disabled={startingAssignmentId === assignment.id || (assignment.is_completed && !assignment.in_progress_attempt_id)}
                     onClick={async () => {
                       if (!token) return;
+                      if (assignment.in_progress_attempt_id) {
+                        window.location.href = `/practice?attemptId=${assignment.in_progress_attempt_id}`;
+                        return;
+                      }
                       setStartingAssignmentId(assignment.id);
                       try {
                         const response = await postJson<{ attemptId: number }>("/api/quiz/start-assignment", {
@@ -189,7 +194,13 @@ export function StudentDashboardClient() {
                       }
                     }}
                   >
-                    {startingAssignmentId === assignment.id ? "Starting..." : assignment.is_completed ? "Retry assignment" : "Start assignment"}
+                    {startingAssignmentId === assignment.id
+                      ? "Starting..."
+                      : assignment.in_progress_attempt_id
+                        ? "Resume assignment"
+                        : assignment.is_completed
+                          ? "Completed"
+                          : "Start assignment"}
                   </Button>
                   {assignment.latest_attempt_id && (
                     <Button asChild size="sm" variant="outline">

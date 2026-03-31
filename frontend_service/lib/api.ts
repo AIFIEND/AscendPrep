@@ -1,14 +1,29 @@
 // frontend_service/lib/api.ts
-
 const stripTrailing = (value: string) => value.replace(/\/+$/, "");
 
-const SERVER_API_BASE = stripTrailing(
-  process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"
-);
+function resolveApiBase() {
+  if (typeof window === "undefined") {
+    const serverBase = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL;
+    if (!serverBase) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error("Missing API_URL or NEXT_PUBLIC_API_URL for server-side API calls.");
+      }
+      return "http://localhost:5000";
+    }
+    return stripTrailing(serverBase);
+  }
 
-const CLIENT_API_BASE = stripTrailing(process.env.NEXT_PUBLIC_API_BASE || "/backend");
+  const clientBase = process.env.NEXT_PUBLIC_API_BASE;
+  if (!clientBase) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Missing NEXT_PUBLIC_API_BASE for client-side API calls.");
+    }
+    return "/backend";
+  }
+  return stripTrailing(clientBase);
+}
 
-const API_BASE = typeof window === "undefined" ? SERVER_API_BASE : CLIENT_API_BASE;
+const API_BASE = resolveApiBase();
 
 export class ApiError extends Error {
   status: number;
@@ -36,9 +51,17 @@ export function apiUrl(path: string) {
 
 export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
   const url = apiUrl(endpoint);
+  const authHeaders: Record<string, string> = {};
+  if (typeof window !== "undefined") {
+    const { getSession } = await import("next-auth/react");
+    const session = await getSession();
+    const token = session?.user?.backendToken;
+    if (token) authHeaders.Authorization = `Bearer ${token}`;
+  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    ...authHeaders,
     ...(options.headers as Record<string, string>),
   };
 
@@ -62,6 +85,9 @@ export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
       }
     } catch {
       // If JSON parse fails, keep default message
+    }
+    if (response.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("ascendprep:auth-expired"));
     }
     throw new ApiError(errorMessage, response.status, response.statusText, errorData);
   }

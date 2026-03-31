@@ -27,6 +27,7 @@ export default function QuizClient({ attemptId, initialQuestions, initialAnswers
   const [answers, setAnswers] = useState<Record<number, string>>(initialAnswers || {});
   const [loading, setLoading] = useState(!initialQuestions);
   const [submitting, setSubmitting] = useState(false);
+  const [savingAnswers, setSavingAnswers] = useState(0);
 
   // If no questions provided, fetch them (WITH TOKEN)
   useEffect(() => {
@@ -57,32 +58,26 @@ export default function QuizClient({ attemptId, initialQuestions, initialAnswers
     setAnswers(prev => ({ ...prev, [currentQuestion.id]: value }));
     
     // Save to backend
+    setSavingAnswers((count) => count + 1);
     postJson("/api/quiz/answer", {
       attemptId,
       questionId: currentQuestion.id,
       answer: value
     }, {
         headers: { "Authorization": `Bearer ${token}` } // <--- ATTACH TOKEN
-    }).catch(err => console.error("Failed to save answer", err));
+    }).catch(err => console.error("Failed to save answer", err))
+      .finally(() => setSavingAnswers((count) => Math.max(0, count - 1)));
   };
 
   const handleSubmit = async () => {
     if (!token) return;
+    if (savingAnswers > 0) return;
     setSubmitting(true);
-
-    const correctCount = questions.reduce(
-      (acc, q) => (answers[q.id] === q.correctAnswer ? acc + 1 : acc),
-      0
-    );
-    const computedScore = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
 
     try {
       const response = await postJson<any>(
         "/api/quiz/submit",
-        {
-          attemptId,
-          score: computedScore,
-        },
+        { attemptId },
         {
           headers: { "Authorization": `Bearer ${token}` },
         }
@@ -150,7 +145,7 @@ export default function QuizClient({ attemptId, initialQuestions, initialAnswers
           </Button>
 
           {currentIndex === questions.length - 1 ? (
-            <Button onClick={handleSubmit} disabled={submitting}>
+            <Button onClick={handleSubmit} disabled={submitting || savingAnswers > 0}>
               {submitting ? "Submitting..." : "Finish Quiz"}
             </Button>
           ) : (
