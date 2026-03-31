@@ -8,7 +8,7 @@ import { Toaster } from "@/components/ui/sonner";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "PeakQuest Learning",
+  title: "AscendPrep Learning",
   description: "Adaptive business and exam practice platform for classrooms, programs, and individual learners.",
 };
 

@@ -26,16 +26,11 @@ export default async function DashboardPage() {
       <PageHeader
         eyebrow="Your Study Space"
         title={`Welcome back, ${userName}`}
-        description="Keep your streak alive, focus weak categories, and build mastery with short daily practice."
+        description="Keep your streak alive, focus weak categories, and build mastery with short daily sessions."
         actions={
-          <>
-            <Button asChild>
-              <Link href="/start-quiz">Start practice</Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href="/tests-taken">Resume last session</Link>
-            </Button>
-          </>
+          <Button asChild variant="outline">
+            <Link href="/tests-taken">Resume last session</Link>
+          </Button>
         }
       />
 

@@ -111,14 +111,9 @@ export function StudentDashboardClient() {
               You are currently level <strong>{summary.level}</strong> with <strong>{summary.xp} XP</strong>.
               Keep your daily routine to build long-term gains.
             </p>
-            <div className="flex flex-wrap gap-2">
-              <Button asChild size="lg">
-                <Link href="/start-quiz?mode=recommended">Start recommended focus</Link>
-              </Button>
-              <Button asChild size="lg" variant="outline">
-                <Link href="/start-quiz?mode=targeted">Start targeted practice</Link>
-              </Button>
-            </div>
+            <Button asChild size="lg" className="w-fit">
+              <Link href="/start-quiz">Practice</Link>
+            </Button>
           </div>
 
           <Card>
@@ -210,14 +205,9 @@ export function StudentDashboardClient() {
 
       <section className="grid gap-6 lg:grid-cols-[1.25fr_1fr]">
         <SectionBlock>
-          <div className="mb-4 flex items-end justify-between">
-            <div>
-              <h3 className="section-title">Recommended focus</h3>
-              <p className="section-subtitle">These are the best categories to practice next.</p>
-            </div>
-            <Button asChild size="sm">
-              <Link href="/start-quiz?mode=recommended">Start</Link>
-            </Button>
+          <div className="mb-4">
+            <h3 className="section-title">Recommended focus</h3>
+            <p className="section-subtitle">These are the best categories to practice next.</p>
           </div>
           <div className="space-y-2">
             {focusAreas.length === 0 ? (
