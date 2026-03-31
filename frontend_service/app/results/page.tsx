@@ -19,16 +19,13 @@ type AttemptResultResponse = {
   };
   questions: Question[];
 };
-type ResumeResponse = {
-  questions: Question[];
-  answersSoFar: Record<string, string>;
-};
 
 type AttemptSummary = {
   id: number;
   score: number | null;
   total_questions: number;
   answers: Record<string, string>;
+  is_complete: boolean;
 };
 
 export default function ResultsPage() {
@@ -37,31 +34,10 @@ export default function ResultsPage() {
   const [data, setData] = useState<AttemptResultResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [gamification, setGamification] = useState<any | null>(null);
 
   const attemptId = searchParams.get("attemptId");
 
   useEffect(() => {
-    if (!attemptId) return;
-    const key = `last-gamification-${attemptId}`;
-    const raw = typeof window !== "undefined" ? window.localStorage.getItem(key) : null;
-    if (raw) {
-      try {
-        setGamification(JSON.parse(raw));
-      } catch {
-        setGamification(null);
-      }
-      window.localStorage.removeItem(key);
-    }
-  }, [attemptId]);
-
-  useEffect(() => {
-    if (!attemptId) {
-      setError("Missing attempt ID.");
-      setLoading(false);
-      return;
-    }
-
     if (status === "loading") {
       setLoading(true);
       return;
@@ -73,57 +49,42 @@ export default function ResultsPage() {
       return;
     }
 
-    setError(null);
-    setLoading(true);
+    const loadResults = async () => {
+      setLoading(true);
+      setError(null);
 
-    (async () => {
       try {
-        const resp = await getJson<AttemptResultResponse>(`/api/quiz/attempt/${attemptId}/results`, {
+        const effectiveAttemptId = attemptId || await (async () => {
+          const attempts = await getJson<AttemptSummary[]>("/api/user/attempts", {
+            headers: { Authorization: `Bearer ${session.user.backendToken}` },
+            cache: "no-store",
+          });
+          const latestComplete = attempts.find((a) => a.is_complete);
+          return latestComplete ? String(latestComplete.id) : null;
+        })();
+
+        if (!effectiveAttemptId) {
+          setError("No completed quiz results yet.");
+          setData(null);
+          return;
+        }
+
+        const resp = await getJson<AttemptResultResponse>(`/api/quiz/attempt/${effectiveAttemptId}/results`, {
           headers: { Authorization: `Bearer ${session.user.backendToken}` },
           cache: "no-store",
         });
-        setData(resp);
-        setError(null);
-      } catch (err) {
-        const statusCode = err instanceof ApiError ? err.status : undefined;
-        if (statusCode !== 401 && statusCode !== 403) {
-          try {
-            const [resume, attempts] = await Promise.all([
-              getJson<ResumeResponse>(`/api/quiz/resume/${attemptId}`, {
-                headers: { Authorization: `Bearer ${session.user.backendToken}` },
-                cache: "no-store",
-              }),
-              getJson<AttemptSummary[]>("/api/user/attempts", {
-                headers: { Authorization: `Bearer ${session.user.backendToken}` },
-                cache: "no-store",
-              }),
-            ]);
 
-            const summary = attempts.find((a) => String(a.id) === String(attemptId));
-            if (!summary) {
-              setError("Could not load quiz results.");
-            } else {
-              setData({
-                attempt: {
-                  id: summary.id,
-                  score: summary.score,
-                  total_questions: summary.total_questions,
-                  answers: resume.answersSoFar || summary.answers || {},
-                },
-                questions: resume.questions || [],
-              });
-              setError(null);
-            }
-          } catch {
-            setError("Could not load quiz results.");
-          }
-        } else {
-          setError("Could not load quiz results.");
-        }
+        setData(resp);
+      } catch (err) {
+        const message = err instanceof ApiError ? err.message : "Could not load quiz results.";
+        setError(message);
+        setData(null);
       } finally {
         setLoading(false);
       }
-    })();
+    };
+
+    loadResults();
   }, [attemptId, session?.user?.backendToken, status]);
 
   const reviewedQuestions = useMemo(() => {
@@ -150,22 +111,16 @@ export default function ResultsPage() {
     }, 0);
   }, [data, reviewedQuestions]);
 
-  const effectiveTotalQuestions = reviewedQuestions.length;
-
-  const computedScore = useMemo(() => {
-    if (!data || effectiveTotalQuestions === 0) return 0;
-    return Math.round((correctAnswers / effectiveTotalQuestions) * 100);
-  }, [data, correctAnswers, effectiveTotalQuestions]);
-
   if (loading) {
     return <div className="container mx-auto px-4 py-8">Loading results...</div>;
   }
+
   if (error || !data) {
     return (
       <div className="container mx-auto px-4 py-8">
         <Card className="max-w-xl mx-auto">
           <CardHeader>
-            <CardTitle>Could not load results</CardTitle>
+            <CardTitle>Results unavailable</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-muted-foreground">{error || "No results found."}</p>
@@ -174,7 +129,7 @@ export default function ResultsPage() {
                 <Link href="/start-quiz">Start New Quiz</Link>
               </Button>
               <Button variant="outline" asChild>
-                <Link href="/dashboard">Back to Dashboard</Link>
+                <Link href="/tests-taken">View Sessions</Link>
               </Button>
             </div>
           </CardContent>
@@ -183,7 +138,8 @@ export default function ResultsPage() {
     );
   }
 
-  const score = effectiveTotalQuestions > 0 ? computedScore : (data.attempt.score ?? 0);
+  const effectiveTotalQuestions = reviewedQuestions.length;
+  const score = effectiveTotalQuestions > 0 ? Math.round((correctAnswers / effectiveTotalQuestions) * 100) : (data.attempt.score ?? 0);
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -210,16 +166,6 @@ export default function ResultsPage() {
                   <div className="text-sm text-gray-500">Incorrect</div>
                 </div>
               </div>
-              {gamification && (
-                <div className="w-full rounded-lg border bg-muted/20 p-4 space-y-2">
-                  <p className="font-semibold">Session rewards</p>
-                  <p className="text-sm">+{gamification.xp_earned} XP earned • Level {gamification.level}</p>
-                  <p className="text-sm">Streak: {gamification.current_streak_days} day(s)</p>
-                  {gamification.badges_unlocked?.length > 0 && (
-                    <p className="text-sm">Unlocked: {gamification.badges_unlocked.map((b: any) => b.title).join(", ")}</p>
-                  )}
-                </div>
-              )}
 
               <div className="flex flex-col sm:flex-row gap-4 w-full">
                 <Link href="/" className="w-full sm:w-auto">
@@ -240,64 +186,35 @@ export default function ResultsPage() {
         </Card>
 
         <div className="space-y-6">
-          <h2 className="text-2xl font-bold">All Questions</h2>
+          <h2 className="text-2xl font-bold">Reviewed Questions</h2>
+          {reviewedQuestions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">This attempt has no answer data to review.</p>
+          ) : (
+            reviewedQuestions.map((question, index) => {
+              const userAnswer = data.attempt.answers[String(question.id)];
+              const isCorrect = userAnswer === question.correctAnswer;
 
-          {reviewedQuestions.map((question, index) => {
-            const userAnswer = data.attempt.answers[String(question.id)];
-            const isCorrect = userAnswer === question.correctAnswer;
-
-            return (
-              <Card key={question.id} className="border-l-4 border-l-primary">
-                <CardHeader>
-                  <div className="flex justify-between items-start">
-                    <CardTitle className="text-lg">Question {index + 1}</CardTitle>
-                    {isCorrect ? (
-                      <div className="flex items-center text-green-500">
-                        <CheckCircle className="h-5 w-5 mr-1" />
-                        <span>Correct</span>
+              return (
+                <Card key={question.id} className="border-l-4 border-l-primary">
+                  <CardHeader>
+                    <div className="flex justify-between items-start">
+                      <CardTitle className="text-lg">Question {index + 1}</CardTitle>
+                      <div className={`flex items-center ${isCorrect ? "text-green-500" : "text-red-500"}`}>
+                        {isCorrect ? <CheckCircle className="h-5 w-5 mr-1" /> : <XCircle className="h-5 w-5 mr-1" />}
+                        <span>{isCorrect ? "Correct" : "Incorrect"}</span>
                       </div>
-                    ) : (
-                      <div className="flex items-center text-red-500">
-                        <XCircle className="h-5 w-5 mr-1" />
-                        <span>Incorrect</span>
-                      </div>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <p>{question.question}</p>
-
-                  <div className="space-y-2">
-                    {question.options.map((option) => (
-                      <div
-                        key={option.id}
-                        className={`p-3 border rounded-lg ${
-                          option.id === question.correctAnswer
-                            ? "bg-green-50 border-green-500 dark:bg-green-900/20"
-                            : userAnswer === option.id
-                              ? "bg-red-50 border-red-500 dark:bg-red-900/20"
-                              : ""
-                        }`}
-                      >
-                        <div className="flex items-center">
-                          <span className="font-semibold mr-2">{option.id}.</span>
-                          <span>{option.text}</span>
-                          {option.id === question.correctAnswer && (
-                            <CheckCircle className="h-4 w-4 ml-2 text-green-500" />
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="text-sm text-gray-600 dark:text-gray-400 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                    <p className="font-semibold">Explanation:</p>
-                    <p>{question.explanation}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <p className="font-medium">{question.question}</p>
+                    <p className="text-sm">Your answer: <span className="font-semibold">{userAnswer || "No answer"}</span></p>
+                    <p className="text-sm">Correct answer: <span className="font-semibold">{question.correctAnswer}</span></p>
+                    <p className="text-sm text-muted-foreground">{question.explanation}</p>
+                  </CardContent>
+                </Card>
+              );
+            })
+          )}
         </div>
       </div>
     </div>

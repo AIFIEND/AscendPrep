@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { SetupStatusNotice } from '@/components/setup/setup-status-notice';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -39,14 +38,11 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center py-10">
-      <Card className="w-full max-w-sm border-primary/20 shadow-lg">
+    <div className="min-h-[calc(100vh-6rem)] flex items-center justify-center px-4 py-10">
+      <Card className="w-full max-w-md shadow-sm">
         <CardHeader>
           <CardTitle>Welcome back</CardTitle>
-          <CardDescription>Sign in to continue your study streak and track progress.</CardDescription>
-          <div className="pt-2">
-            <SetupStatusNotice />
-          </div>
+          <CardDescription>Log in to continue your practice.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
