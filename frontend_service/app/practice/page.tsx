@@ -60,12 +60,8 @@ function PracticePageContent() {
           const trimmedQuestions = requestedQuestionCount ? data.questions.slice(0, requestedQuestionCount) : data.questions;
           setQuestions(trimmedQuestions);
           setSelectedAnswers(savedAnswers);
-          const firstUnansweredIndex = trimmedQuestions.findIndex(
-            (q: Question) => !savedAnswers.hasOwnProperty(q.id)
-          );
-          setCurrentQuestionIndex(
-            firstUnansweredIndex === -1 ? trimmedQuestions.length - 1 : firstUnansweredIndex
-          );
+          const firstUnansweredIndex = trimmedQuestions.findIndex((q: Question) => !savedAnswers.hasOwnProperty(q.id));
+          setCurrentQuestionIndex(firstUnansweredIndex === -1 ? trimmedQuestions.length - 1 : firstUnansweredIndex);
         } else {
           if (quizCreationInitiated.current) return;
           quizCreationInitiated.current = true;
@@ -95,7 +91,6 @@ function PracticePageContent() {
           setQuestions(trimmedQuestions);
         }
       } catch (error) {
-        console.error("Failed to load quiz:", error);
         toast.error("Could not load quiz questions.");
       } finally {
         setIsLoading(false);
@@ -105,58 +100,42 @@ function PracticePageContent() {
     loadQuiz();
   }, [attemptIdParam, categoriesParam, difficultiesParam, numQuestionsParam, sessionToken, session]);
 
-  if (status === "loading") {
-    return <p className="text-center mt-8">Loading...</p>;
-  }
-
-  if (status === "unauthenticated") {
-    return <AuthRequiredState description="You need to be logged in to practice." />;
-  }
+  if (status === "loading") return <p className="page-wrap mt-8 text-sm text-muted-foreground">Loading...</p>;
+  if (status === "unauthenticated") return <AuthRequiredState description="You need to be logged in to practice." />;
 
   const currentQuestion = questions[currentQuestionIndex];
-  const isCorrect =
-    currentQuestion && selectedAnswers[currentQuestion.id] === currentQuestion.correctAnswer;
+  const isCorrect = currentQuestion && selectedAnswers[currentQuestion.id] === currentQuestion.correctAnswer;
 
   const handleAnswerSelect = async (questionId: number, answerId: string) => {
     if (showFeedback) return;
 
     try {
       setSelectedAnswers((p) => ({ ...p, [questionId]: answerId }));
-      if (resolvedAttemptId === null) {
-        throw new Error("Could not determine quiz attempt. Please restart the quiz.");
-      }
+      if (resolvedAttemptId === null) throw new Error("Could not determine quiz attempt. Please restart the quiz.");
 
       await postJson(
         "/api/quiz/answer",
-        {
-          attemptId: resolvedAttemptId,
-          questionId,
-          answer: answerId,
-        },
+        { attemptId: resolvedAttemptId, questionId, answer: answerId },
         {
           headers: {
             Authorization: `Bearer ${sessionToken}`,
           },
         }
       );
-    } catch (error) {
-      console.error("Failed to save answer:", error);
+    } catch {
       toast.error("Could not save your answer. Please check your connection.");
     }
 
     const correct = questions.find((q) => q.id === questionId)?.correctAnswer === answerId;
     toast(correct ? "Correct!" : "Incorrect.", {
-      description: correct ? "Great job!" : "Keep trying!",
+      description: correct ? "Great job." : "Keep going.",
       duration: 2000,
     });
     setShowFeedback(true);
   };
 
   const handleEliminateOption = (qId: number, opt: string) => {
-    setEliminatedOptions((p) => ({
-      ...p,
-      [qId]: [...(p[qId] || []), opt],
-    }));
+    setEliminatedOptions((p) => ({ ...p, [qId]: [...(p[qId] || []), opt] }));
   };
 
   const handleFlagQuestion = (qId: number) => {
@@ -165,18 +144,12 @@ function PracticePageContent() {
 
   const handleNextQuestion = () => {
     setShowFeedback(false);
-    if (currentQuestionIndex < questions.length - 1) {
-      setCurrentQuestionIndex((p) => p + 1);
-    } else {
-      handleShowScore();
-    }
+    if (currentQuestionIndex < questions.length - 1) setCurrentQuestionIndex((p) => p + 1);
+    else handleShowScore();
   };
 
   const handleShowScore = async () => {
-    const correctCount = questions.reduce(
-      (acc, q) => (selectedAnswers[q.id] === q.correctAnswer ? acc + 1 : acc),
-      0
-    );
+    const correctCount = questions.reduce((acc, q) => (selectedAnswers[q.id] === q.correctAnswer ? acc + 1 : acc), 0);
     const finalScore = questions.length > 0 ? (correctCount / questions.length) * 100 : 0;
     setScore(finalScore);
     setShowScore(true);
@@ -190,34 +163,23 @@ function PracticePageContent() {
       await postJson(
         "/api/quiz/submit",
         { attemptId: resolvedAttemptId, score: Math.round(finalScore) },
-        {
-          headers: {
-            Authorization: `Bearer ${sessionToken}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${sessionToken}` } }
       );
-      toast.success("Quiz score saved successfully!");
       router.push(`/results?attemptId=${resolvedAttemptId}`);
     } catch (error) {
-      console.error("Failed to save quiz score:", error);
-      const message =
-        error instanceof ApiError
-          ? error.message
-          : "Could not save your score. Please try again.";
+      const message = error instanceof ApiError ? error.message : "Could not save your score. Please try again.";
       toast.error(message);
       setShowScore(false);
     }
   };
 
-  if (isLoading) {
-    return <div className="text-center p-10">Loading Questions...</div>;
-  }
+  if (isLoading) return <div className="page-wrap py-10 text-sm text-muted-foreground">Loading questions...</div>;
 
   if (!isLoading && questions.length === 0) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="page-wrap py-10">
         <Alert>
-          <AlertTitle>No Questions Found</AlertTitle>
+          <AlertTitle>No questions found</AlertTitle>
           <AlertDescription>No questions match the selected filters. Please try again.</AlertDescription>
         </Alert>
       </div>
@@ -226,19 +188,16 @@ function PracticePageContent() {
 
   if (showScore) {
     return (
-      <div className="max-w-4xl mx-auto p-4 mt-10">
-        <Card>
+      <div className="page-wrap py-10">
+        <Card className="mx-auto max-w-xl text-center">
           <CardHeader>
-            <CardTitle>Quiz Complete!</CardTitle>
-            <CardDescription>Here's how you did:</CardDescription>
+            <CardTitle>Session complete</CardTitle>
+            <CardDescription>Your score for this practice set</CardDescription>
           </CardHeader>
-          <CardContent>
-            <Alert variant="default" className="text-center">
-              <AlertTitle className="text-2xl mb-2">Final Score</AlertTitle>
-              <AlertDescription className="text-4xl font-bold">{score?.toFixed(0) ?? 0}%</AlertDescription>
-            </Alert>
-            <Button onClick={() => (window.location.href = "/start-quiz")} className="w-full mt-6">
-              Take Another Quiz
+          <CardContent className="space-y-5">
+            <p className="text-5xl font-semibold tracking-tight">{score?.toFixed(0) ?? 0}%</p>
+            <Button onClick={() => (window.location.href = "/start-quiz")} className="w-full">
+              Start another session
             </Button>
           </CardContent>
         </Card>
@@ -249,83 +208,83 @@ function PracticePageContent() {
   const progress = questions.length ? ((currentQuestionIndex + 1) / questions.length) * 100 : 0;
 
   return (
-    <div className="max-w-4xl mx-auto p-4 mt-10 pb-28">
-      <Card>
-        <CardHeader>
-          <div className="flex justify-between items-center gap-3">
-            <CardTitle>
-              Question {currentQuestionIndex + 1} of {questions.length}
-            </CardTitle>
-            <Button variant="ghost" size="icon" onClick={() => handleFlagQuestion(currentQuestion.id)}>
-              <Flag className={flaggedQuestions.includes(currentQuestion.id) ? "text-blue-500 fill-current" : ""} />
-            </Button>
-          </div>
-          <Progress value={progress} className="mt-3" />
-          <CardDescription className="pt-4 text-base">{currentQuestion.question}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4 flex flex-wrap gap-2">
-            {questions.map((q, idx) => {
-              const answered = selectedAnswers[q.id] !== undefined;
-              const isCurrent = idx === currentQuestionIndex;
-              return (
-                <Button
-                  key={q.id}
-                  size="sm"
-                  variant={isCurrent ? "default" : answered ? "secondary" : "outline"}
-                  onClick={() => {
-                    setCurrentQuestionIndex(idx);
-                    setShowFeedback(false);
-                  }}
-                >
-                  {idx + 1}
-                </Button>
-              );
-            })}
-          </div>
+    <div className="page-wrap pb-28 pt-8 sm:pt-10">
+      <div className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-[1fr_220px]">
+        <Card>
+          <CardHeader className="space-y-4 border-b border-border/70 pb-5">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-base sm:text-lg">Question {currentQuestionIndex + 1} of {questions.length}</CardTitle>
+              <Button variant="ghost" size="icon" onClick={() => handleFlagQuestion(currentQuestion.id)}>
+                <Flag className={flaggedQuestions.includes(currentQuestion.id) ? "fill-current text-primary" : "text-muted-foreground"} />
+              </Button>
+            </div>
+            <Progress value={progress} className="h-2.5" />
+            <CardDescription className="pt-1 text-base leading-relaxed text-foreground">{currentQuestion.question}</CardDescription>
+          </CardHeader>
 
-          <div className="space-y-3">
+          <CardContent className="space-y-3 pt-5">
             {currentQuestion.options.map((option) => (
-              <div key={option.id} className="flex items-center gap-2">
+              <div key={option.id} className="flex items-start gap-2">
                 <Button
-                  variant={selectedAnswers[currentQuestion.id] === option.id ? "default" : "outline"}
-                  className={`w-full justify-start h-auto text-wrap text-left ${(eliminatedOptions[currentQuestion.id] || []).includes(option.id)
-                    ? "line-through text-muted-foreground"
-                    : ""
-                    }`}
+                  variant={selectedAnswers[currentQuestion.id] === option.id ? "secondary" : "outline"}
+                  className={`h-auto w-full justify-start whitespace-normal px-4 py-3 text-left ${
+                    (eliminatedOptions[currentQuestion.id] || []).includes(option.id) ? "text-muted-foreground line-through" : ""
+                  }`}
                   onClick={() => handleAnswerSelect(currentQuestion.id, option.id)}
                   disabled={(eliminatedOptions[currentQuestion.id] || []).includes(option.id) || showFeedback}
                 >
-                  <span className="font-bold mr-2">{option.id}.</span> {option.text}
+                  <span className="mr-2 font-semibold">{option.id}.</span> {option.text}
                 </Button>
                 {!showFeedback && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleEliminateOption(currentQuestion.id, option.id)}
-                    aria-label={`Eliminate option ${option.id}`}
-                  >
+                  <Button variant="ghost" size="icon" onClick={() => handleEliminateOption(currentQuestion.id, option.id)}>
                     <X className="h-4 w-4" />
                   </Button>
                 )}
               </div>
             ))}
-          </div>
 
-          {showFeedback && (
-            <Alert variant={isCorrect ? "default" : "destructive"} className="mt-6">
-              <AlertTitle>{isCorrect ? "Correct!" : "Incorrect"}</AlertTitle>
-              <AlertDescription>{currentQuestion.explanation}</AlertDescription>
-            </Alert>
-          )}
-        </CardContent>
-      </Card>
+            {showFeedback && (
+              <Alert variant={isCorrect ? "default" : "destructive"} className="mt-5">
+                <AlertTitle>{isCorrect ? "Correct" : "Incorrect"}</AlertTitle>
+                <AlertDescription>{currentQuestion.explanation}</AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
 
-      <div className="fixed bottom-0 left-0 right-0 border-t bg-background/95 backdrop-blur p-4 md:hidden">
-        <div className="max-w-4xl mx-auto">
+        <Card className="h-fit">
+          <CardHeader>
+            <CardTitle className="text-sm">Navigator</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-5 gap-2 lg:grid-cols-3">
+              {questions.map((q, idx) => {
+                const answered = selectedAnswers[q.id] !== undefined;
+                const isCurrent = idx === currentQuestionIndex;
+                return (
+                  <Button
+                    key={q.id}
+                    size="sm"
+                    variant={isCurrent ? "default" : answered ? "secondary" : "outline"}
+                    onClick={() => {
+                      setCurrentQuestionIndex(idx);
+                      setShowFeedback(false);
+                    }}
+                  >
+                    {idx + 1}
+                  </Button>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="fixed bottom-0 left-0 right-0 border-t bg-background/95 p-4 backdrop-blur md:hidden">
+        <div className="page-wrap">
           {showFeedback ? (
             <Button onClick={handleNextQuestion} className="w-full">
-              {currentQuestionIndex === questions.length - 1 ? "Show Score" : "Next Question"}
+              {currentQuestionIndex === questions.length - 1 ? "Finish session" : "Next question"}
             </Button>
           ) : (
             <Button disabled className="w-full">Select an answer to continue</Button>
@@ -333,10 +292,10 @@ function PracticePageContent() {
         </div>
       </div>
 
-      <div className="hidden md:block mt-6">
+      <div className="mx-auto mt-6 hidden max-w-6xl md:block">
         {showFeedback && (
           <Button onClick={handleNextQuestion} className="w-full">
-            {currentQuestionIndex === questions.length - 1 ? "Show Score" : "Next Question"}
+            {currentQuestionIndex === questions.length - 1 ? "Finish session" : "Next question"}
           </Button>
         )}
       </div>
@@ -346,7 +305,7 @@ function PracticePageContent() {
 
 export default function PracticePage() {
   return (
-    <Suspense fallback={<div className="text-center p-10">Loading...</div>}>
+    <Suspense fallback={<div className="page-wrap py-10 text-sm text-muted-foreground">Loading...</div>}>
       <PracticePageContent />
     </Suspense>
   );

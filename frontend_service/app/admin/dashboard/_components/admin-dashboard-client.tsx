@@ -204,7 +204,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
 
   const renderSummaryHeader = (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <Card className="border-primary/15 bg-primary/5">
+      <Card className="border-border/70 bg-card">
         <CardContent className="flex items-center justify-between p-4">
           <div>
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Total learners</p>
@@ -213,31 +213,31 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
           <Users className="h-5 w-5 text-primary" />
         </CardContent>
       </Card>
-      <Card className="border-cyan-300/30 bg-cyan-50/50 dark:bg-cyan-950/20">
+      <Card className="border-border/70 bg-card">
         <CardContent className="flex items-center justify-between p-4">
           <div>
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Sessions completed</p>
             <p className="text-2xl font-bold">{totals.total_quizzes_taken}</p>
           </div>
-          <ClipboardCheck className="h-5 w-5 text-cyan-600" />
+          <ClipboardCheck className="h-5 w-5 text-primary" />
         </CardContent>
       </Card>
-      <Card className="border-emerald-300/30 bg-emerald-50/50 dark:bg-emerald-950/20">
+      <Card className="border-border/70 bg-card">
         <CardContent className="flex items-center justify-between p-4">
           <div>
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Average score</p>
             <p className="text-2xl font-bold">{totals.average_score?.toFixed(1) ?? "—"}%</p>
           </div>
-          <Activity className="h-5 w-5 text-emerald-600" />
+          <Activity className="h-5 w-5 text-primary" />
         </CardContent>
       </Card>
-      <Card className="border-violet-300/30 bg-violet-50/50 dark:bg-violet-950/20">
+      <Card className="border-border/70 bg-card">
         <CardContent className="flex items-center justify-between p-4">
           <div>
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Institution</p>
             <p className="max-w-[12rem] truncate text-lg font-bold">{institution.name}</p>
           </div>
-          <Building2 className="h-5 w-5 text-violet-600" />
+          <Building2 className="h-5 w-5 text-primary" />
         </CardContent>
       </Card>
     </div>
@@ -282,7 +282,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
             </CardHeader>
             <CardContent className="space-y-2">
               {assignments.slice(0, 5).map((assignment) => (
-                <div key={assignment.id} className="rounded border p-3 text-sm space-y-1">
+                <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-3 text-sm space-y-1">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium">{assignment.title}</span>
                     <span>{assignment.completed_count}/{assignment.assigned_count} completed</span>
@@ -305,7 +305,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                 <p className="text-sm text-muted-foreground">No completed quizzes yet. Ask students to begin with a short practice set.</p>
               ) : (
                 categoryRows.map((row) => (
-                  <div key={row.category} className="space-y-1 rounded-lg border p-3">
+                  <div key={row.category} className="space-y-1 rounded-lg border border-border/70 bg-secondary/25 p-3">
                     <div className="flex justify-between text-sm">
                       <span>{row.category}</span>
                       <span className="font-medium">{row.accuracy.toFixed(1)}%</span>
@@ -320,7 +320,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
       )}
 
       {view === "students" && (
-        <Card className="app-surface">
+        <Card className="border-border/70">
           <CardHeader>
             <CardTitle>Learners</CardTitle>
             <CardDescription>Manage learner access for your institution.</CardDescription>
@@ -401,7 +401,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
 
       {view === "assignments" && (
         <>
-          <Card className="app-surface">
+          <Card className="border-border/70">
             <CardHeader>
               <CardTitle>Create assignment</CardTitle>
               <CardDescription>Build targeted practice or tests for all learners or selected students.</CardDescription>
@@ -480,7 +480,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
+                <div className="space-y-2 rounded-xl border border-border/70 bg-secondary/25 p-3">
                   <Label className="font-medium">Categories</Label>
                   <div className="max-h-40 overflow-y-auto space-y-1">
                     {config.categories.map((cat) => (
@@ -501,7 +501,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                   </div>
                 </div>
 
-                <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
+                <div className="space-y-2 rounded-xl border border-border/70 bg-secondary/25 p-3">
                   <Label className="font-medium">Difficulties</Label>
                   <div className="space-y-1">
                     {config.difficulties.map((diff) => (
@@ -523,7 +523,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                 </div>
               </div>
 
-              <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
+              <div className="space-y-2 rounded-xl border border-border/70 bg-secondary/25 p-3">
                 <Label className="font-medium">Assignment audience</Label>
                 <RadioGroup
                   value={assignmentForm.assign_to_all ? "all" : "selected"}
@@ -540,7 +540,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                   <div className="flex items-center gap-2"><RadioGroupItem value="selected" id="aud-selected" /><Label htmlFor="aud-selected">Selected learners only</Label></div>
                 </RadioGroup>
                 {!assignmentForm.assign_to_all && (
-                  <div className="max-h-44 overflow-y-auto rounded border p-2 space-y-1">
+                  <div className="max-h-44 overflow-y-auto rounded-lg border border-border/70 bg-background p-2 space-y-1">
                     {institutionLearners.map((user) => (
                       <div key={user.id} className="flex items-center gap-2">
                         <Checkbox
@@ -562,7 +562,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                 )}
               </div>
 
-              <div className="grid gap-3 rounded-xl border bg-muted/20 p-3 md:grid-cols-3">
+              <div className="grid gap-3 rounded-xl border border-border/70 bg-secondary/25 p-3 md:grid-cols-3">
                 <div className="flex items-center justify-between gap-2">
                   <Label htmlFor="shuffle">Shuffle questions</Label>
                   <Switch
@@ -596,14 +596,14 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
             </CardContent>
           </Card>
 
-          <Card className="app-surface">
+          <Card className="border-border/70">
             <CardHeader>
               <CardTitle>Assignment tracking</CardTitle>
               <CardDescription>Assignment specs and completion metrics.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               {assignments.map((assignment) => (
-                <div key={assignment.id} className="rounded border p-3 text-sm space-y-1">
+                <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-3 text-sm space-y-1">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-medium">{assignment.title}</span>
                     <span>{assignment.completed_count}/{assignment.assigned_count} completed</span>
