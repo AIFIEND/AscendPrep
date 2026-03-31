@@ -63,7 +63,7 @@ export default function Navbar() {
             <GraduationCap className="h-4 w-4" />
           </span>
           <div className="leading-tight">
-            <p className="text-sm font-semibold tracking-tight">PeakQuest</p>
+            <p className="text-sm font-semibold tracking-tight">AscendPrep</p>
             <p className="text-[11px] text-muted-foreground">Study with momentum</p>
           </div>
         </Link>

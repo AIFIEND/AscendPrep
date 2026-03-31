@@ -143,8 +143,8 @@ export default function StartQuizPage() {
       <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[1fr_320px]">
         <Card>
           <CardHeader>
-            <CardTitle>Practice setup</CardTitle>
-            <CardDescription>Choose exactly how this next session should work.</CardDescription>
+            <CardTitle>Choose your practice mode</CardTitle>
+            <CardDescription>Start with one mode, then customize your session settings below.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-7">
             {errorMsg && (
@@ -161,7 +161,7 @@ export default function StartQuizPage() {
                 className={`rounded-xl border p-4 text-left ${mode === "targeted" ? "border-primary bg-primary/5" : "border-border/70"}`}
               >
                 <p className="font-medium">Targeted Practice</p>
-                <p className="mt-1 text-sm text-muted-foreground">Uses only the categories you select below.</p>
+                <p className="mt-1 text-sm text-muted-foreground">You pick the categories and build a focused drill set.</p>
               </button>
               <button
                 type="button"
@@ -169,7 +169,7 @@ export default function StartQuizPage() {
                 className={`rounded-xl border p-4 text-left ${mode === "recommended" ? "border-primary bg-primary/5" : "border-border/70"}`}
               >
                 <p className="font-medium">Recommended Focus</p>
-                <p className="mt-1 text-sm text-muted-foreground">Automatically chooses weak-area categories and ignores category selection.</p>
+                <p className="mt-1 text-sm text-muted-foreground">We auto-select weak areas so you can jump in quickly.</p>
               </button>
             </section>
 
