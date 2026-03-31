@@ -23,7 +23,7 @@ export default function RootLayout({
         <NextAuthProvider>
           <Toaster />
           <Navbar />
-          <main className="mx-auto w-full max-w-[1400px] px-2 pb-8 sm:px-4">{children}</main>
+          <main className="pb-10">{children}</main>
         </NextAuthProvider>
       </body>
     </html>

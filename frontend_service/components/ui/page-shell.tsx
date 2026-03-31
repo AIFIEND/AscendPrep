@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 export function PageShell({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn("mx-auto w-full max-w-6xl space-y-6 px-3 py-6 sm:px-4 sm:py-8", className)}>{children}</div>;
+  return <div className={cn("page-wrap space-y-8 py-8 sm:space-y-10 sm:py-10", className)}>{children}</div>;
 }
 
 export function PageHeader({
@@ -17,11 +17,11 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <section className="app-surface p-5 sm:p-7">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="space-y-2">
-          {eyebrow ? <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary/80">{eyebrow}</p> : null}
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
+    <section className="app-surface px-6 py-6 sm:px-8 sm:py-7">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="space-y-2.5">
+          {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
           {description ? <p className="max-w-3xl text-sm text-muted-foreground sm:text-base">{description}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
@@ -31,5 +31,5 @@ export function PageHeader({
 }
 
 export function SectionBlock({ className, children }: { className?: string; children: ReactNode }) {
-  return <section className={cn("app-surface p-4 sm:p-6", className)}>{children}</section>;
+  return <section className={cn("app-surface p-5 sm:p-6", className)}>{children}</section>;
 }

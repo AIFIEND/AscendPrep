@@ -1,118 +1,78 @@
-// app/page.tsx
-// Homepage: hero, value prop, and clear Login / Register buttons.
-// If logged in, shows "Go to Dashboard" + "Start a Practice Quiz" instead.
-
 import Link from "next/link";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth-options";
 import { Button } from "@/components/ui/button";
 import { SetupStatusNotice } from "@/components/setup/setup-status-notice";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 
 export default async function HomePage() {
   const session = await getServerSession(authOptions);
 
   return (
-    <main className="min-h-[calc(100vh-8rem)] flex flex-col">
-      {/* HERO */}
-      <section className="flex-1 flex items-center">
-        <div className="container mx-auto px-4 py-16 grid gap-10 md:grid-cols-2">
-          <div className="space-y-6">
-            <SetupStatusNotice />
-            <span className="inline-block text-xs tracking-widest uppercase text-muted-foreground">
-              PeakQuest Learning Platform
-            </span>
-            <h1 className="text-4xl md:text-5xl font-bold leading-tight">
-              Practice smarter. <span className="text-primary">Score higher.</span>
-            </h1>
-            <p className="text-lg text-muted-foreground">
-              Targeted multiple-choice practice with instant feedback, progress
-              tracking, and admin analytics for classrooms, programs, and competitive prep teams.
-            </p>
+    <main className="page-wrap space-y-14 py-10 sm:py-14">
+      <section className="grid gap-8 lg:grid-cols-[1.3fr_0.9fr] lg:items-start">
+        <div className="space-y-6">
+          <SetupStatusNotice />
+          <p className="eyebrow">PeakQuest Learning Platform</p>
+          <h1 className="max-w-2xl text-balance text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
+            Build daily study momentum and turn weak areas into strengths.
+          </h1>
+          <p className="max-w-xl text-base text-muted-foreground sm:text-lg">
+            Focused multiple-choice practice with clean feedback, progress visibility, and institution-level support for coaches.
+          </p>
 
-            {session ? (
-              <div className="flex flex-wrap gap-3">
-                <Button asChild size="lg">
-                  <Link href="/dashboard">Go to Dashboard</Link>
-                </Button>
-                <Button variant="outline" asChild size="lg">
-                  <Link href="/start-quiz">Start a Practice Quiz</Link>
-                </Button>
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-3">
-                <Button asChild size="lg">
-                  <Link href="/register">Register</Link>
-                </Button>
-                <Button variant="outline" asChild size="lg">
-                  <Link href="/login">Login</Link>
-                </Button>
-              </div>
-            )}
+          {session ? (
+            <div className="flex flex-wrap gap-3">
+              <Button asChild size="lg">
+                <Link href="/start-quiz">Start practice session</Link>
+              </Button>
+              <Button variant="outline" asChild size="lg">
+                <Link href="/dashboard">Open dashboard</Link>
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-3">
+              <Button asChild size="lg">
+                <Link href="/register">Create account</Link>
+              </Button>
+              <Button variant="outline" asChild size="lg">
+                <Link href="/login">Log in</Link>
+              </Button>
+            </div>
+          )}
 
-            <p className="text-xs text-muted-foreground">
-              Students need an institution registration code from their counselor to create an account.
-            </p>
-          </div>
-
-          {/* Visual / value card */}
-          <Card className="border-dashed">
-            <CardHeader>
-              <CardTitle>Why you’ll love it</CardTitle>
-              <CardDescription>
-                Practice that adapts to you and shows real progress.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <FeatureItem title="Smart Practice">
-                Filter by category & difficulty to focus where it matters.
-              </FeatureItem>
-              <FeatureItem title="Instant Feedback">
-                See explanations after each question to lock in learning.
-              </FeatureItem>
-              <FeatureItem title="Progress Tracking">
-                Visualize improvement over time and spot weak areas.
-              </FeatureItem>
-              <FeatureItem title="Admin Insights">
-                Coaches and admins can monitor performance across their institution.
-              </FeatureItem>
-            </CardContent>
-          </Card>
+          <p className="text-sm text-muted-foreground">
+            Students need an institution registration code to create an account.
+          </p>
         </div>
+
+        <Card>
+          <CardContent className="space-y-4 p-6">
+            <p className="text-sm font-medium text-foreground">What this helps you do</p>
+            <FeatureItem title="Prioritize what matters">
+              Filter by category and difficulty so each session has a clear objective.
+            </FeatureItem>
+            <FeatureItem title="Learn immediately">
+              Get explanation-based feedback right after every answer.
+            </FeatureItem>
+            <FeatureItem title="Track meaningful progress">
+              Follow streaks, topic mastery, and score trends over time.
+            </FeatureItem>
+          </CardContent>
+        </Card>
       </section>
 
-      {/* HOW IT WORKS */}
-      <section className="py-12 border-t">
-        <div className="container mx-auto px-4 grid gap-6 md:grid-cols-3">
-          <StepCard index={1} title="Register">
-            Create an account with your institution code to join the correct school.
-          </StepCard>
-          <StepCard index={2} title="Practice">
-            Choose categories/difficulties and get instant feedback.
-          </StepCard>
-          <StepCard index={3} title="Improve">
-            Review your stats on the Progress page and level up.
-          </StepCard>
-        </div>
+      <section className="grid gap-4 border-t border-border/70 pt-10 md:grid-cols-3">
+        <StepCard index="01" title="Choose focus">
+          Pick the category, difficulty, and number of questions you want to train.
+        </StepCard>
+        <StepCard index="02" title="Practice with feedback">
+          Work through one question at a time with concise explanation support.
+        </StepCard>
+        <StepCard index="03" title="Review and improve">
+          Use your dashboard to spot weak patterns and run targeted follow-up sessions.
+        </StepCard>
       </section>
-
-      {/* FOOTER */}
-      <footer className="py-8 border-t">
-        <div className="container mx-auto px-4 text-sm text-muted-foreground flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
-          <span>© {new Date().getFullYear()} PeakQuest Learning</span>
-          <div className="flex flex-col sm:flex-row gap-2 sm:gap-4">
-            <Link className="hover:underline" href="/start-quiz">Quick Start</Link>
-            <Link className="hover:underline" href="/login">Login</Link>
-            <Link className="hover:underline" href="/register">Register</Link>
-          </div>
-        </div>
-      </footer>
     </main>
   );
 }
@@ -125,9 +85,9 @@ function FeatureItem({
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <div className="font-semibold">{title}</div>
-      <div className="text-sm text-muted-foreground">{children}</div>
+    <div className="space-y-1 rounded-xl border border-border/70 bg-secondary/35 p-4">
+      <p className="text-sm font-medium">{title}</p>
+      <p className="text-sm text-muted-foreground">{children}</p>
     </div>
   );
 }
@@ -137,23 +97,15 @@ function StepCard({
   title,
   children,
 }: {
-  index: number;
+  index: string;
   title: string;
   children: React.ReactNode;
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-primary/10 text-primary text-xs font-bold">
-            {index}
-          </span>
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">
-        {children}
-      </CardContent>
-    </Card>
+    <div className="app-surface p-5">
+      <p className="text-xs font-semibold tracking-[0.14em] text-primary/80">{index}</p>
+      <p className="mt-2 text-base font-semibold">{title}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{children}</p>
+    </div>
   );
 }
