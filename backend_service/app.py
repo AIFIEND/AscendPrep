@@ -226,16 +226,17 @@ class QuizAttempt(db.Model):
     results_by_category = db.Column(db.JSON, nullable=True)
 
     def to_dict(self):
+        timestamp_value = self.timestamp.isoformat() if self.timestamp else None
         return {
             'id': self.id,
             'test_name': self.test_name,
             'score': self.score,
             'total_questions': self.total_questions,
-            'timestamp': self.timestamp.isoformat(),
+            'timestamp': timestamp_value,
             'user_id': self.user_id,
             'assignment_id': self.assignment_id,
-            'question_ids': self.question_ids,
-            'answers': self.answers,
+            'question_ids': self.question_ids or [],
+            'answers': self.answers or {},
             'is_complete': self.is_complete,
             'results_by_category': self.results_by_category
         }
@@ -1719,7 +1720,13 @@ def save_answer(current_user):
 @token_required
 def get_user_attempts(current_user):
     attempts = QuizAttempt.query.filter_by(user_id=current_user.id).order_by(QuizAttempt.timestamp.desc()).all()
-    return jsonify([a.to_dict() for a in attempts])
+    payload = []
+    for attempt in attempts:
+        try:
+            payload.append(attempt.to_dict())
+        except Exception as exc:
+            app.logger.exception("Skipping malformed attempt during /api/user/attempts for user_id=%s attempt_id=%s: %s", current_user.id, getattr(attempt, "id", None), exc)
+    return jsonify(payload)
 
 
 @app.route('/api/user/gamification-summary', methods=['GET'])
@@ -1776,10 +1783,13 @@ def resume_quiz(current_user, attempt_id):
     attempt = QuizAttempt.query.filter_by(id=attempt_id, user_id=current_user.id).first()
     if not attempt:
         return jsonify({'message': 'Attempt not found'}), 404
-    qs = Question.query.filter(Question.id.in_(attempt.question_ids)).all()
+    question_ids = attempt.question_ids or []
+    if not question_ids:
+        return _json_error("This attempt does not contain any questions.", 400, "attempt_has_no_questions")
+    qs = Question.query.filter(Question.id.in_(question_ids)).all()
     id_to_q = {q.id: q for q in qs}
-    ordered = [id_to_q[qid] for qid in attempt.question_ids if qid in id_to_q]
-    return jsonify({'questions': [q.to_dict() for q in ordered], 'answersSoFar': attempt.answers}), 200
+    ordered = [id_to_q[qid] for qid in question_ids if qid in id_to_q]
+    return jsonify({'questions': [q.to_dict() for q in ordered], 'answersSoFar': attempt.answers or {}}), 200
 
 
 @app.route('/api/questions')
