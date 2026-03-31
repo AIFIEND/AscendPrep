@@ -28,6 +28,10 @@ function PracticePageContent() {
   const [showScore, setShowScore] = useState(false);
   const [score, setScore] = useState<number | null>(null);
   const [showFeedback, setShowFeedback] = useState(false);
+  const [pendingSaves, setPendingSaves] = useState(0);
+  const [assignmentMeta, setAssignmentMeta] = useState<{ due_date: string | null; time_limit_minutes: number | null } | null>(null);
+  const [attemptStartedAt, setAttemptStartedAt] = useState<string | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
 
   const attemptIdParam = searchParams.get("attemptId");
   const categoriesParam = searchParams.get("categories");
@@ -58,6 +62,8 @@ function PracticePageContent() {
           const trimmedQuestions = requestedQuestionCount ? data.questions.slice(0, requestedQuestionCount) : data.questions;
           setQuestions(trimmedQuestions);
           setSelectedAnswers(savedAnswers);
+          setAssignmentMeta(data.assignment ?? null);
+          setAttemptStartedAt(data.attempt?.timestamp ?? null);
           const firstUnansweredIndex = trimmedQuestions.findIndex((q: Question) => !savedAnswers.hasOwnProperty(q.id));
           setCurrentQuestionIndex(firstUnansweredIndex === -1 ? trimmedQuestions.length - 1 : firstUnansweredIndex);
         } else {
@@ -91,7 +97,8 @@ function PracticePageContent() {
           setQuestions(trimmedQuestions);
         }
       } catch (error) {
-        toast.error("Could not load quiz questions.");
+        const message = error instanceof ApiError ? error.message : "Could not load quiz questions.";
+        toast.error(message);
       } finally {
         setIsLoading(false);
       }
@@ -99,6 +106,24 @@ function PracticePageContent() {
 
     loadQuiz();
   }, [attemptIdParam, categoriesParam, difficultiesParam, numQuestionsParam, sessionToken, session]);
+
+  useEffect(() => {
+    const limitMinutes = assignmentMeta?.time_limit_minutes;
+    if (!limitMinutes || !attemptStartedAt) {
+      setSecondsLeft(null);
+      return;
+    }
+    const interval = setInterval(() => {
+      const started = new Date(attemptStartedAt).getTime();
+      const expiresAt = started + limitMinutes * 60 * 1000;
+      const remaining = Math.floor((expiresAt - Date.now()) / 1000);
+      setSecondsLeft(remaining);
+      if (remaining <= 0) {
+        clearInterval(interval);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [assignmentMeta, attemptStartedAt]);
 
   if (status === "loading") return <p className="page-wrap mt-8 text-sm text-muted-foreground">Loading...</p>;
   if (status === "unauthenticated") return <AuthRequiredState description="You need to be logged in to practice." />;
@@ -112,7 +137,7 @@ function PracticePageContent() {
     try {
       setSelectedAnswers((p) => ({ ...p, [questionId]: answerId }));
       if (resolvedAttemptId === null) throw new Error("Could not determine quiz attempt. Please restart the quiz.");
-
+      setPendingSaves((count) => count + 1);
       await postJson(
         "/api/quiz/answer",
         { attemptId: resolvedAttemptId, questionId, answer: answerId },
@@ -124,6 +149,8 @@ function PracticePageContent() {
       );
     } catch {
       toast.error("Could not save your answer. Please check your connection.");
+    } finally {
+      setPendingSaves((count) => Math.max(0, count - 1));
     }
 
     const correct = questions.find((q) => q.id === questionId)?.correctAnswer === answerId;
@@ -149,10 +176,10 @@ function PracticePageContent() {
   };
 
   const handleShowScore = async () => {
-    const correctCount = questions.reduce((acc, q) => (selectedAnswers[q.id] === q.correctAnswer ? acc + 1 : acc), 0);
-    const finalScore = questions.length > 0 ? (correctCount / questions.length) * 100 : 0;
-    setScore(finalScore);
-    setShowScore(true);
+    if (pendingSaves > 0) {
+      toast("Please wait", { description: "Saving your latest answer before submitting..." });
+      return;
+    }
 
     if (!sessionToken || resolvedAttemptId === null) {
       toast.error("Could not save score because your quiz session is missing. Please restart the quiz.");
@@ -162,9 +189,11 @@ function PracticePageContent() {
     try {
       await postJson(
         "/api/quiz/submit",
-        { attemptId: resolvedAttemptId, score: Math.round(finalScore) },
+        { attemptId: resolvedAttemptId },
         { headers: { Authorization: `Bearer ${sessionToken}` } }
       );
+      setScore(null);
+      setShowScore(true);
       router.push(`/results?attemptId=${resolvedAttemptId}`);
     } catch (error) {
       const message = error instanceof ApiError ? error.message : "Could not save your score. Please try again.";
@@ -214,6 +243,11 @@ function PracticePageContent() {
           <CardHeader className="space-y-4 border-b border-border/70 pb-5">
             <div className="flex items-center justify-between gap-3">
               <CardTitle className="text-base sm:text-lg">Question {currentQuestionIndex + 1} of {questions.length}</CardTitle>
+              {typeof secondsLeft === "number" && (
+                <span className={`text-xs font-medium ${secondsLeft <= 30 ? "text-destructive" : "text-muted-foreground"}`}>
+                  Time left: {Math.max(secondsLeft, 0)}s
+                </span>
+              )}
               <Button variant="ghost" size="icon" onClick={() => handleFlagQuestion(currentQuestion.id)}>
                 <Flag className={flaggedQuestions.includes(currentQuestion.id) ? "fill-current text-primary" : "text-muted-foreground"} />
               </Button>
@@ -231,7 +265,7 @@ function PracticePageContent() {
                     (eliminatedOptions[currentQuestion.id] || []).includes(option.id) ? "text-muted-foreground line-through" : ""
                   }`}
                   onClick={() => handleAnswerSelect(currentQuestion.id, option.id)}
-                  disabled={(eliminatedOptions[currentQuestion.id] || []).includes(option.id) || showFeedback}
+                  disabled={(eliminatedOptions[currentQuestion.id] || []).includes(option.id) || showFeedback || (typeof secondsLeft === "number" && secondsLeft <= 0)}
                 >
                   <span className="mr-2 font-semibold">{option.id}.</span> {option.text}
                 </Button>
@@ -283,7 +317,7 @@ function PracticePageContent() {
       <div className="fixed bottom-0 left-0 right-0 border-t bg-background/95 p-4 backdrop-blur md:hidden">
         <div className="page-wrap">
           {showFeedback ? (
-            <Button onClick={handleNextQuestion} className="w-full">
+            <Button onClick={handleNextQuestion} className="w-full" disabled={pendingSaves > 0 || (typeof secondsLeft === "number" && secondsLeft <= 0)}>
               {currentQuestionIndex === questions.length - 1 ? "Finish session" : "Next question"}
             </Button>
           ) : (
@@ -294,7 +328,7 @@ function PracticePageContent() {
 
       <div className="mx-auto mt-6 hidden max-w-6xl md:block">
         {showFeedback && (
-          <Button onClick={handleNextQuestion} className="w-full">
+          <Button onClick={handleNextQuestion} className="w-full" disabled={pendingSaves > 0 || (typeof secondsLeft === "number" && secondsLeft <= 0)}>
             {currentQuestionIndex === questions.length - 1 ? "Finish session" : "Next question"}
           </Button>
         )}

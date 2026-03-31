@@ -87,21 +87,7 @@ export default function ResultsPage() {
     loadResults();
   }, [attemptId, session?.user?.backendToken, status]);
 
-  const reviewedQuestions = useMemo(() => {
-    if (!data) return [] as Question[];
-
-    const answeredIds = new Set(
-      Object.keys(data.attempt.answers || {})
-        .map((id) => Number.parseInt(id, 10))
-        .filter(Number.isFinite)
-    );
-
-    if (answeredIds.size > 0 && answeredIds.size < data.questions.length) {
-      return data.questions.filter((q) => answeredIds.has(q.id));
-    }
-
-    return data.questions;
-  }, [data]);
+  const reviewedQuestions = useMemo(() => data?.questions || [], [data]);
 
   const correctAnswers = useMemo(() => {
     if (!data) return 0;
@@ -138,8 +124,11 @@ export default function ResultsPage() {
     );
   }
 
-  const effectiveTotalQuestions = reviewedQuestions.length;
-  const score = effectiveTotalQuestions > 0 ? Math.round((correctAnswers / effectiveTotalQuestions) * 100) : (data.attempt.score ?? 0);
+  const effectiveTotalQuestions = data.attempt.total_questions || reviewedQuestions.length;
+  const answeredCount = Object.keys(data.attempt.answers || {}).length;
+  const incorrectCount = Math.max(answeredCount - correctAnswers, 0);
+  const unansweredCount = Math.max(effectiveTotalQuestions - answeredCount, 0);
+  const score = data.attempt.score ?? 0;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -154,7 +143,7 @@ export default function ResultsPage() {
                 <div className="text-4xl font-bold">{score}%</div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 w-full max-w-md">
+                <div className="grid grid-cols-2 gap-4 w-full max-w-md">
                 <div className="flex flex-col items-center p-4 bg-green-50 rounded-lg dark:bg-green-900/20">
                   <CheckCircle className="h-8 w-8 text-green-500 mb-2" />
                   <div className="text-xl font-bold">{correctAnswers}</div>
@@ -162,9 +151,12 @@ export default function ResultsPage() {
                 </div>
                 <div className="flex flex-col items-center p-4 bg-red-50 rounded-lg dark:bg-red-900/20">
                   <XCircle className="h-8 w-8 text-red-500 mb-2" />
-                  <div className="text-xl font-bold">{Math.max(effectiveTotalQuestions - correctAnswers, 0)}</div>
+                  <div className="text-xl font-bold">{incorrectCount}</div>
                   <div className="text-sm text-gray-500">Incorrect</div>
                 </div>
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Total: {effectiveTotalQuestions} · Answered: {answeredCount} · Unanswered: {unansweredCount}
               </div>
 
               <div className="flex flex-col sm:flex-row gap-4 w-full">
