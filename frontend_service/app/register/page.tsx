@@ -130,8 +130,8 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center py-10">
-      <Card className="w-full max-w-md border-primary/20 shadow-lg">
+    <div className="min-h-[calc(100vh-6rem)] flex items-center justify-center px-4 py-10">
+      <Card className="w-full max-w-md shadow-sm">
         <CardHeader>
           <CardTitle>Create your study account</CardTitle>
           <CardDescription>

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { Award, Flame, Target, TrendingUp, Zap } from "lucide-react";
-import { getJson } from "@/lib/api";
+import { ApiError, getJson, postJson } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -34,11 +34,30 @@ type FocusArea = {
   suggested_question_count: number;
 };
 
+type LearnerAssignment = {
+  id: number;
+  title: string;
+  description: string | null;
+  mode: "practice" | "test";
+  question_count: number;
+  categories: string[];
+  difficulties: string[];
+  due_date: string | null;
+  shuffle_questions: boolean;
+  is_completed: boolean;
+  latest_attempt_id: number | null;
+  latest_score: number | null;
+};
+
 export function StudentDashboardClient() {
   const { data: session } = useSession();
   const token = session?.user?.backendToken;
   const [summary, setSummary] = useState<Summary | null>(null);
   const [focusAreas, setFocusAreas] = useState<FocusArea[]>([]);
+  const [assignments, setAssignments] = useState<LearnerAssignment[]>([]);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(true);
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [startingAssignmentId, setStartingAssignmentId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -54,6 +73,22 @@ export function StudentDashboardClient() {
     })
       .then((data) => setFocusAreas(data.focus_areas ?? []))
       .catch(() => setFocusAreas([]));
+
+    setAssignmentsLoading(true);
+    getJson<LearnerAssignment[]>("/api/user/assignments", {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    })
+      .then((rows) => {
+        setAssignments(rows ?? []);
+        setAssignmentError(null);
+      })
+      .catch((err) => {
+        const message = err instanceof ApiError ? err.message : "Could not load assignments.";
+        setAssignmentError(message);
+        setAssignments([]);
+      })
+      .finally(() => setAssignmentsLoading(false));
   }, [token]);
 
   const recentAverage = useMemo(() => {
@@ -78,10 +113,10 @@ export function StudentDashboardClient() {
             </p>
             <div className="flex flex-wrap gap-2">
               <Button asChild size="lg">
-                <Link href="/start-quiz?mode=targeted">Start targeted practice</Link>
+                <Link href="/start-quiz?mode=recommended">Start recommended focus</Link>
               </Button>
               <Button asChild size="lg" variant="outline">
-                <Link href="/tests-taken">Resume latest session</Link>
+                <Link href="/start-quiz?mode=targeted">Start targeted practice</Link>
               </Button>
             </div>
           </div>
@@ -109,6 +144,70 @@ export function StudentDashboardClient() {
         <CompactStat icon={<Award className="h-4 w-4" />} label="Questions answered" value={summary.total_questions_answered.toString()} note="All time" />
       </section>
 
+      <SectionBlock>
+        <div className="mb-4 flex items-end justify-between">
+          <div>
+            <h3 className="section-title">Assigned to you</h3>
+            <p className="section-subtitle">Assignments from your instructor appear here.</p>
+          </div>
+        </div>
+        {assignmentsLoading ? (
+          <p className="text-sm text-muted-foreground">Loading assignments...</p>
+        ) : assignmentError ? (
+          <p className="text-sm text-destructive">{assignmentError}</p>
+        ) : assignments.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No assignments yet. Check back soon.</p>
+        ) : (
+          <div className="space-y-3">
+            {assignments.map((assignment) => (
+              <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium">{assignment.title}</p>
+                  <Badge variant={assignment.is_completed ? "secondary" : "default"}>
+                    {assignment.is_completed ? "Completed" : "Assigned"}
+                  </Badge>
+                </div>
+                {assignment.description && <p className="mt-1 text-sm text-muted-foreground">{assignment.description}</p>}
+                <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                  <span>{assignment.mode.toUpperCase()} · {assignment.question_count} questions</span>
+                  <span>Shuffle: {assignment.shuffle_questions ? "On" : "Off"}</span>
+                  <span>Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}</span>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    disabled={startingAssignmentId === assignment.id}
+                    onClick={async () => {
+                      if (!token) return;
+                      setStartingAssignmentId(assignment.id);
+                      try {
+                        const response = await postJson<{ attemptId: number }>("/api/quiz/start-assignment", {
+                          assignmentId: assignment.id,
+                        }, {
+                          headers: { Authorization: `Bearer ${token}` },
+                        });
+                        window.location.href = `/practice?attemptId=${response.attemptId}`;
+                      } catch (err) {
+                        setAssignmentError(err instanceof ApiError ? err.message : "Could not open assignment.");
+                      } finally {
+                        setStartingAssignmentId(null);
+                      }
+                    }}
+                  >
+                    {startingAssignmentId === assignment.id ? "Starting..." : assignment.is_completed ? "Retry assignment" : "Start assignment"}
+                  </Button>
+                  {assignment.latest_attempt_id && (
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/results?attemptId=${assignment.latest_attempt_id}`}>View latest result</Link>
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionBlock>
+
       <section className="grid gap-6 lg:grid-cols-[1.25fr_1fr]">
         <SectionBlock>
           <div className="mb-4 flex items-end justify-between">
@@ -117,7 +216,7 @@ export function StudentDashboardClient() {
               <p className="section-subtitle">These are the best categories to practice next.</p>
             </div>
             <Button asChild size="sm">
-              <Link href="/start-quiz?mode=targeted">Start</Link>
+              <Link href="/start-quiz?mode=recommended">Start</Link>
             </Button>
           </div>
           <div className="space-y-2">

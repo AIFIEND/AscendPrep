@@ -88,13 +88,13 @@ export const ProgressClient = ({ data }: ProgressClientProps) => {
           <CardDescription>Your score for each category within every test you've taken.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="w-full overflow-x-auto"><div className="min-w-[680px] h-[360px] sm:h-[400px]"><ResponsiveContainer width="100%" height="100%">
-            <LineChart data={timeSeriesData} margin={{ top: 5, right: 30, left: 20, bottom: 80 }}>
+          <div className="w-full overflow-x-auto"><div className="min-w-[680px] h-[380px] sm:h-[420px]"><ResponsiveContainer width="100%" height="100%">
+            <LineChart data={timeSeriesData} margin={{ top: 40, right: 30, left: 20, bottom: 95 }}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" angle={-45} textAnchor="end" interval={0} height={100} tick={{fontSize: 12}}/>
               <YAxis domain={[0, 100]} unit="%"/>
               <Tooltip />
-              <Legend wrapperStyle={{fontSize: "12px"}}/>
+              <Legend verticalAlign="top" align="left" wrapperStyle={{fontSize: "12px", paddingBottom: "8px"}}/>
               {allCategories.map((category, index) => (
                 <Line key={category} type="monotone" dataKey={category} stroke={colors[index % colors.length]} connectNulls />
               ))}

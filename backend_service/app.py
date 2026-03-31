@@ -1217,6 +1217,8 @@ def create_assignment(current_user):
         }
         if any(uid not in allowed_ids for uid in selected_user_ids):
             return _json_error("selected_user_ids must belong to active learners in your institution", 400, "invalid_selected_users")
+        if len(selected_user_ids) == 0:
+            return _json_error("Select at least one learner or assign to all.", 400, "no_selected_users")
 
     assignment = Assignment(
         institution_id=current_user.institution_id,
@@ -1236,8 +1238,15 @@ def create_assignment(current_user):
     db.session.add(assignment)
     db.session.flush()
     if assign_to_all:
-        recipients = User.query.filter_by(institution_id=current_user.institution_id, is_admin=False, is_superadmin=False).all()
+        recipients = User.query.filter_by(
+            institution_id=current_user.institution_id,
+            is_admin=False,
+            is_superadmin=False,
+            is_active=True,
+        ).all()
         selected_user_ids = [u.id for u in recipients]
+    if len(selected_user_ids) == 0:
+        return _json_error("No eligible learners found for this assignment.", 400, "no_recipients")
     for user_id in selected_user_ids:
         db.session.add(AssignmentRecipient(assignment_id=assignment.id, user_id=int(user_id)))
     db.session.commit()
@@ -1283,6 +1292,59 @@ def list_assignments(current_user):
             "missing_count": len(missing),
             "average_score": round(sum(a.score for a in completed_attempts if a.score is not None) / len(completed_attempts), 1) if completed_attempts else None,
         })
+    return jsonify(payload), 200
+
+
+@app.route('/api/user/assignments', methods=['GET'])
+@token_required
+def list_user_assignments(current_user):
+    if current_user.is_admin or current_user.is_superadmin:
+        return _json_error("Assignments are only available for learner accounts.", 403, "assignments_forbidden")
+
+    recipients = AssignmentRecipient.query.filter_by(user_id=current_user.id).all()
+    assignment_ids = [recipient.assignment_id for recipient in recipients]
+    if not assignment_ids:
+        return jsonify([]), 200
+
+    assignments = (
+        Assignment.query
+        .filter(Assignment.id.in_(assignment_ids), Assignment.is_active == True)
+        .order_by(Assignment.due_date.asc().nullslast(), Assignment.created_at.desc())
+        .all()
+    )
+
+    completed_attempts = QuizAttempt.query.filter(
+        QuizAttempt.user_id == current_user.id,
+        QuizAttempt.assignment_id.in_(assignment_ids),
+        QuizAttempt.is_complete == True,
+    ).all()
+    completion_map = {}
+    for attempt in completed_attempts:
+        existing = completion_map.get(attempt.assignment_id)
+        if not existing or attempt.timestamp > existing.timestamp:
+            completion_map[attempt.assignment_id] = attempt
+
+    payload = []
+    for assignment in assignments:
+        attempt = completion_map.get(assignment.id)
+        payload.append({
+            "id": assignment.id,
+            "title": assignment.title,
+            "description": assignment.description,
+            "mode": assignment.mode,
+            "question_count": assignment.question_count,
+            "categories": assignment.categories or [],
+            "difficulties": assignment.difficulties or [],
+            "due_date": assignment.due_date.isoformat() if assignment.due_date else None,
+            "time_limit_minutes": assignment.time_limit_minutes,
+            "shuffle_questions": assignment.shuffle_questions if assignment.shuffle_questions is not None else True,
+            "show_explanations": assignment.show_explanations if assignment.show_explanations is not None else True,
+            "minimum_passing_score": assignment.minimum_passing_score,
+            "is_completed": attempt is not None,
+            "latest_attempt_id": attempt.id if attempt else None,
+            "latest_score": attempt.score if attempt else None,
+        })
+
     return jsonify(payload), 200
 
 
@@ -1334,7 +1396,11 @@ def start_targeted_quiz(current_user):
         if difficulty:
             backup_q = backup_q.filter_by(difficulty=difficulty)
         questions = list({q.id: q for q in (questions + backup_q.all())}.values())
-    random.shuffle(questions)
+    shuffle_questions = bool(data.get("shuffle_questions", True))
+    if shuffle_questions:
+        random.shuffle(questions)
+    else:
+        questions.sort(key=lambda item: item.id)
     selected = questions[:num_questions]
     if not selected:
         return _json_error("No questions available for targeted quiz.", 400, "no_questions")
@@ -1415,7 +1481,11 @@ def start_quiz(current_user):
         except (TypeError, ValueError):
             return jsonify({'message': 'numQuestions must be a positive integer'}), 400
 
-    random.shuffle(selected)
+    shuffle_questions = bool(data.get("shuffle_questions", True))
+    if shuffle_questions:
+        random.shuffle(selected)
+    else:
+        selected.sort(key=lambda item: item.id)
 
     if requested_count is not None:
         selected = selected[:requested_count]
