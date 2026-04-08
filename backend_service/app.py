@@ -19,6 +19,8 @@ from time import time
 from collections import defaultdict
 from threading import Lock
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.sql import func
 from sqlalchemy.exc import SQLAlchemyError
 
 load_dotenv()
@@ -270,6 +272,41 @@ class QuizAttempt(db.Model):
             'answers': self.answers or {},
             'is_complete': self.is_complete,
             'results_by_category': self.results_by_category
+        }
+
+
+class Roleplay(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    event = db.Column(db.String(255), nullable=False)
+    industry = db.Column(db.String(255), nullable=False)
+    business_name = db.Column(db.String(255), nullable=False)
+    student_role = db.Column(db.String(255), nullable=False)
+    judge_role = db.Column(db.String(255), nullable=False)
+    scenario_background = db.Column(db.Text, nullable=False)
+    objective = db.Column(db.Text, nullable=False)
+    task_type = db.Column(db.String(255), nullable=False)
+    difficulty = db.Column(db.String(50), nullable=False)
+    training_json = db.Column(JSONB, nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'event': self.event,
+            'industry': self.industry,
+            'business_name': self.business_name,
+            'student_role': self.student_role,
+            'judge_role': self.judge_role,
+            'scenario_background': self.scenario_background,
+            'objective': self.objective,
+            'task_type': self.task_type,
+            'difficulty': self.difficulty,
+            'training': self.training_json,
+            'is_active': self.is_active,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -1763,6 +1800,12 @@ def get_attempt_results(current_user, attempt_id):
     ordered_questions = [id_to_q[qid].to_dict() for qid in attempt.question_ids if qid in id_to_q]
 
     return jsonify({'attempt': attempt.to_dict(), 'questions': ordered_questions}), 200
+
+
+@app.route('/api/roleplays', methods=['GET'])
+def get_roleplays():
+    roleplays = Roleplay.query.filter_by(is_active=True).order_by(Roleplay.id.asc()).all()
+    return jsonify([roleplay.to_dict() for roleplay in roleplays]), 200
 
 
 @app.route('/api/user/progress', methods=['GET'])
