@@ -19,7 +19,7 @@ from time import time
 from collections import defaultdict
 from threading import Lock
 from sqlalchemy.orm.attributes import flag_modified
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, OperationalError
 
 load_dotenv()
 
@@ -77,6 +77,19 @@ if database_url.startswith("postgres") and "sslmode=" not in database_url:
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
         "connect_args": {"sslmode": "require"}
     }
+
+# Merge SQLAlchemy engine defaults for Postgres to reduce stale/disconnected
+# pooled connections (common on managed platforms with idle timeouts).
+if database_url.startswith("postgres"):
+    engine_options = dict(app.config.get("SQLALCHEMY_ENGINE_OPTIONS") or {})
+    connect_args = dict(engine_options.get("connect_args") or {})
+    if "sslmode=" not in database_url and "sslmode" not in connect_args:
+        connect_args["sslmode"] = "require"
+    engine_options["connect_args"] = connect_args
+    engine_options.setdefault("pool_pre_ping", True)
+    # Recycle idle pooled connections before many provider-side idle closes.
+    engine_options.setdefault("pool_recycle", 300)
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = engine_options
 
 _frontend_origin_raw = os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
 
@@ -780,21 +793,49 @@ def verify_and_get_token():
         return jsonify({'message': 'Too many login attempts for this account. Please wait a few minutes and try again.'}), 429
 
     if not username or not password:
+        app.logger.info("login_missing_credentials ip=%s", ip)
         return jsonify({"message": "Username and password required"}), 400
 
-    user = User.query.filter(db.func.lower(User.username) == username).first()
+    try:
+        user = User.query.filter(db.func.lower(User.username) == username).first()
+    except OperationalError as err:
+        db.session.rollback()
+        app.logger.error("login_db_operational_error_during_user_lookup username=%s ip=%s error=%s", username, ip, err)
+        return jsonify({"message": "Login is temporarily unavailable. Please try again shortly."}), 503
+
     if not user or not user.check_password(password):
-        app.logger.warning("login_failed username=%s ip=%s", username, ip)
+        app.logger.warning("login_invalid_credentials username=%s ip=%s", username, ip)
         return jsonify({"message": "Invalid username or password"}), 401
     if not user.is_active:
+        app.logger.warning("login_inactive_account username=%s user_id=%s ip=%s", username, user.id, ip)
         return jsonify({"message": "Your account is deactivated. Contact your administrator."}), 403
 
     if user.account_type == "institution" and user.institution_id is not None:
-        institution = Institution.query.get(user.institution_id)
+        try:
+            institution = Institution.query.get(user.institution_id)
+        except OperationalError as err:
+            db.session.rollback()
+            app.logger.error(
+                "login_db_operational_error_during_institution_lookup username=%s user_id=%s institution_id=%s ip=%s error=%s",
+                username,
+                user.id,
+                user.institution_id,
+                ip,
+                err,
+            )
+            return jsonify({"message": "Login is temporarily unavailable. Please try again shortly."}), 503
         if not institution or not institution.is_active:
+            app.logger.warning(
+                "login_inactive_institution username=%s user_id=%s institution_id=%s ip=%s",
+                username,
+                user.id,
+                user.institution_id,
+                ip,
+            )
             return jsonify({"message": "Your institution is currently inactive."}), 403
 
     token = issue_token(user)
+    app.logger.info("login_success username=%s user_id=%s ip=%s role=%s", username, user.id, ip, role_for_user(user))
 
     return jsonify({
         'id': user.id,
