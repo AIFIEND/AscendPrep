@@ -10,7 +10,25 @@ from datetime import datetime, timedelta, date
 import jwt
 from functools import wraps
 from flask import Flask, jsonify, request, make_response
-from flask_cors import CORS
+from flask_cors import CORS# Create the base engine options
+engine_options = {
+    # pool_pre_ping: The magic bullet. SQLAlchemy will issue a quick 'SELECT 1' 
+    # to test the connection before yielding it from the pool. If it fails, 
+    # it silently reconnects.
+    "pool_pre_ping": True,
+    
+    # pool_recycle: Proactively recycle connections older than X seconds.
+    # 280 seconds (4.5 minutes) is a safe value that beats Render/Neon's typical 5-minute idle timeouts.
+    "pool_recycle": 280,
+    
+    # Optional but recommended: Prevent requests from hanging indefinitely if the DB is overwhelmed.
+    "pool_timeout": 30,
+}
+
+if database_url.startswith("postgres") and "sslmode=" not in database_url:
+    engine_options["connect_args"] = {"sslmode": "require"}
+
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = engine_options
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
@@ -73,10 +91,25 @@ if _is_production():
 else:
     _warn_env("SUPERADMIN_BOOTSTRAP_TOKEN")
 
+# Create the base engine options
+engine_options = {
+    # pool_pre_ping: The magic bullet. SQLAlchemy will issue a quick 'SELECT 1' 
+    # to test the connection before yielding it from the pool. If it fails, 
+    # it silently reconnects.
+    "pool_pre_ping": True,
+    
+    # pool_recycle: Proactively recycle connections older than X seconds.
+    # 280 seconds (4.5 minutes) is a safe value that beats Render/Neon's typical 5-minute idle timeouts.
+    "pool_recycle": 280,
+    
+    # Optional but recommended: Prevent requests from hanging indefinitely if the DB is overwhelmed.
+    "pool_timeout": 30,
+}
+
 if database_url.startswith("postgres") and "sslmode=" not in database_url:
-    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-        "connect_args": {"sslmode": "require"}
-    }
+    engine_options["connect_args"] = {"sslmode": "require"}
+
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = engine_options
 
 _frontend_origin_raw = os.environ.get("FRONTEND_ORIGIN", "http://localhost:3000")
 
@@ -775,6 +808,7 @@ def verify_and_get_token():
     data = request.get_json() or {}
     username = _normalize_username(data.get('username') or '')
     password = data.get('password') or ''
+    
     if _login_rate_limited(username, ip):
         app.logger.warning("login_rate_limited username=%s ip=%s", username or "<empty>", ip)
         return jsonify({'message': 'Too many login attempts for this account. Please wait a few minutes and try again.'}), 429
@@ -782,19 +816,35 @@ def verify_and_get_token():
     if not username or not password:
         return jsonify({"message": "Username and password required"}), 400
 
-    user = User.query.filter(db.func.lower(User.username) == username).first()
-    if not user or not user.check_password(password):
-        app.logger.warning("login_failed username=%s ip=%s", username, ip)
+    try:
+        # Wrap the database call in a try/except
+        user = User.query.filter(db.func.lower(User.username) == username).first()
+    except SQLAlchemyError as e:
+        db.session.rollback() # Crucial: rollback the broken transaction
+        app.logger.error("db_connection_error during auth username=%s ip=%s error=%s", username, ip, str(e))
+        return jsonify({"message": "Database connection error. Please try again."}), 503
+
+    # Differentiate between missing user and bad password for internal logging
+    if not user:
+        app.logger.warning("login_failed_user_not_found username=%s ip=%s", username, ip)
         return jsonify({"message": "Invalid username or password"}), 401
+        
+    if not user.check_password(password):
+        app.logger.warning("login_failed_bad_password username=%s ip=%s", username, ip)
+        return jsonify({"message": "Invalid username or password"}), 401
+        
     if not user.is_active:
+        app.logger.warning("login_failed_inactive_account username=%s ip=%s", username, ip)
         return jsonify({"message": "Your account is deactivated. Contact your administrator."}), 403
 
     if user.account_type == "institution" and user.institution_id is not None:
         institution = Institution.query.get(user.institution_id)
         if not institution or not institution.is_active:
+            app.logger.warning("login_failed_inactive_institution username=%s ip=%s", username, ip)
             return jsonify({"message": "Your institution is currently inactive."}), 403
 
     token = issue_token(user)
+    app.logger.info("login_success username=%s ip=%s role=%s", username, ip, role_for_user(user))
 
     return jsonify({
         'id': user.id,
