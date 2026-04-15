@@ -11,24 +11,6 @@ import jwt
 from functools import wraps
 from flask import Flask, jsonify, request, make_response
 from flask_cors import CORS# Create the base engine options
-engine_options = {
-    # pool_pre_ping: The magic bullet. SQLAlchemy will issue a quick 'SELECT 1' 
-    # to test the connection before yielding it from the pool. If it fails, 
-    # it silently reconnects.
-    "pool_pre_ping": True,
-    
-    # pool_recycle: Proactively recycle connections older than X seconds.
-    # 280 seconds (4.5 minutes) is a safe value that beats Render/Neon's typical 5-minute idle timeouts.
-    "pool_recycle": 280,
-    
-    # Optional but recommended: Prevent requests from hanging indefinitely if the DB is overwhelmed.
-    "pool_timeout": 30,
-}
-
-if database_url.startswith("postgres") and "sslmode=" not in database_url:
-    engine_options["connect_args"] = {"sslmode": "require"}
-
-app.config["SQLALCHEMY_ENGINE_OPTIONS"] = engine_options
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from dotenv import load_dotenv
