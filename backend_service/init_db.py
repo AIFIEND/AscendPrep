@@ -1,5 +1,4 @@
-from app import app, db
+from migrate import run_migrations
 
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
+    run_migrations()
