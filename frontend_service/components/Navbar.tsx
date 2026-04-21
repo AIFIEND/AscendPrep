@@ -34,12 +34,14 @@ function getNav(role: AppRole): NavItem[] {
       { href: "/admin/institution", label: "Overview" },
       { href: "/admin/students", label: "Learners" },
       { href: "/admin/dashboard", label: "Assignments" },
+      { href: "/roleplays", label: "Roleplays" },
       { href: "/admin/student-view", label: "Learner View" },
     ];
   }
 
   return [
     { href: "/dashboard", label: "Dashboard" },
+    { href: "/roleplays", label: "Roleplays" },
     { href: "/start-quiz", label: "Practice" },
     { href: "/results", label: "Results" },
     { href: "/progress", label: "Progress" },

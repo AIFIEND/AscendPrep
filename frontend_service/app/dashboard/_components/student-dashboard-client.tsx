@@ -50,12 +50,26 @@ type LearnerAssignment = {
   in_progress_attempt_id: number | null;
 };
 
+type LearnerRoleplayAssignment = {
+  id: number;
+  title: string;
+  instructions: string | null;
+  due_date: string | null;
+  assignment_type: "full" | "drill";
+  drill_label: string | null;
+  roleplay_id: number;
+  roleplay: { business_name: string; event: string; difficulty: string; task_type: string } | null;
+  advisor: string | null;
+  is_completed: boolean;
+};
+
 export function StudentDashboardClient() {
   const { data: session } = useSession();
   const token = session?.user?.backendToken;
   const [summary, setSummary] = useState<Summary | null>(null);
   const [focusAreas, setFocusAreas] = useState<FocusArea[]>([]);
   const [assignments, setAssignments] = useState<LearnerAssignment[]>([]);
+  const [roleplayAssignments, setRoleplayAssignments] = useState<LearnerRoleplayAssignment[]>([]);
   const [assignmentsLoading, setAssignmentsLoading] = useState(true);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [startingAssignmentId, setStartingAssignmentId] = useState<number | null>(null);
@@ -90,6 +104,13 @@ export function StudentDashboardClient() {
         setAssignments([]);
       })
       .finally(() => setAssignmentsLoading(false));
+
+    getJson<LearnerRoleplayAssignment[]>("/api/user/roleplay-assignments", {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    })
+      .then((rows) => setRoleplayAssignments(rows ?? []))
+      .catch(() => setRoleplayAssignments([]));
   }, [token]);
 
   const recentAverage = useMemo(() => {
@@ -151,10 +172,34 @@ export function StudentDashboardClient() {
           <p className="text-sm text-muted-foreground">Loading assignments...</p>
         ) : assignmentError ? (
           <p className="text-sm text-destructive">{assignmentError}</p>
-        ) : assignments.length === 0 ? (
+        ) : assignments.length === 0 && roleplayAssignments.length === 0 ? (
           <p className="text-sm text-muted-foreground">No assignments yet. Check back soon.</p>
         ) : (
           <div className="space-y-3">
+            {roleplayAssignments.map((assignment) => (
+              <div key={`roleplay-${assignment.id}`} className="rounded-xl border border-border/70 bg-primary/5 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium">{assignment.title}</p>
+                  <Badge variant={assignment.is_completed ? "secondary" : "default"}>
+                    {assignment.is_completed ? "Completed" : assignment.assignment_type === "full" ? "Full Roleplay" : assignment.drill_label}
+                  </Badge>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {assignment.roleplay?.business_name} · {assignment.roleplay?.event} · Advisor: {assignment.advisor ?? "Advisor"}
+                </p>
+                {assignment.instructions && <p className="mt-1 text-sm text-muted-foreground">{assignment.instructions}</p>}
+                <div className="mt-2 text-xs text-muted-foreground">
+                  Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}
+                </div>
+                <div className="mt-3">
+                  <Button asChild size="sm" variant={assignment.is_completed ? "outline" : "default"}>
+                    <Link href={`/roleplays/${assignment.roleplay_id}?roleplayAssignmentId=${assignment.id}`}>
+                      {assignment.is_completed ? "Review roleplay prep" : assignment.assignment_type === "full" ? "Complete Full Roleplay" : `Practice: ${assignment.drill_label}`}
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+            ))}
             {assignments.map((assignment) => (
               <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">

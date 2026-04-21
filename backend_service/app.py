@@ -19,6 +19,8 @@ from time import time
 from collections import defaultdict
 from threading import Lock
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.sql import func
 from sqlalchemy.exc import SQLAlchemyError
 
 load_dotenv()
@@ -288,6 +290,41 @@ class QuizAttempt(db.Model):
         }
 
 
+class Roleplay(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    event = db.Column(db.String(255), nullable=False)
+    industry = db.Column(db.String(255), nullable=False)
+    business_name = db.Column(db.String(255), nullable=False)
+    student_role = db.Column(db.String(255), nullable=False)
+    judge_role = db.Column(db.String(255), nullable=False)
+    scenario_background = db.Column(db.Text, nullable=False)
+    objective = db.Column(db.Text, nullable=False)
+    task_type = db.Column(db.String(255), nullable=False)
+    difficulty = db.Column(db.String(50), nullable=False)
+    training_json = db.Column(JSONB, nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'event': self.event,
+            'industry': self.industry,
+            'business_name': self.business_name,
+            'student_role': self.student_role,
+            'judge_role': self.judge_role,
+            'scenario_background': self.scenario_background,
+            'objective': self.objective,
+            'task_type': self.task_type,
+            'difficulty': self.difficulty,
+            'training': self.training_json,
+            'is_active': self.is_active,
+            'created_at': self.created_at,
+            'updated_at': self.updated_at,
+        }
+
+
 class Assignment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     institution_id = db.Column(db.Integer, db.ForeignKey("institution.id"), nullable=False, index=True)
@@ -317,6 +354,43 @@ class AssignmentRecipient(db.Model):
         db.UniqueConstraint("assignment_id", "user_id", name="uq_assignment_recipient"),
     )
 
+
+ROLEPLAY_DRILL_TYPES = {
+    "determine_objective": "Determine the Objective",
+    "identify_performance_indicators": "Identify Performance Indicators",
+    "plan_opening": "Plan the Opening",
+    "anticipate_judge_questions": "Anticipate Judge Questions",
+    "define_key_terms": "Define Key Terms",
+    "plan_closing": "Plan the Closing",
+}
+
+
+class RoleplayAssignment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    institution_id = db.Column(db.Integer, db.ForeignKey("institution.id"), nullable=False, index=True)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    roleplay_id = db.Column(db.Integer, db.ForeignKey("roleplay.id"), nullable=False, index=True)
+    assignment_type = db.Column(db.String(20), nullable=False, default="full")
+    drill_type = db.Column(db.String(80), nullable=True)
+    title = db.Column(db.String(180), nullable=False)
+    instructions = db.Column(db.Text, nullable=True)
+    due_date = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+
+    roleplay = db.relationship("Roleplay")
+
+
+class RoleplayAssignmentRecipient(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    roleplay_assignment_id = db.Column(db.Integer, db.ForeignKey("roleplay_assignment.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    assigned_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("roleplay_assignment_id", "user_id", name="uq_roleplay_assignment_recipient"),
+    )
 
 def _superadmin_exists() -> bool:
     return User.query.filter_by(is_superadmin=True).count() > 0
@@ -1971,6 +2045,198 @@ def resume_quiz(current_user, attempt_id):
             'time_limit_minutes': assignment.time_limit_minutes if assignment else None,
         } if assignment else None,
     }), 200
+
+
+@app.route('/api/roleplays', methods=['GET'])
+def get_roleplays():
+    roleplays = Roleplay.query.filter_by(is_active=True).order_by(Roleplay.id.asc()).all()
+    return jsonify([roleplay.to_dict() for roleplay in roleplays]), 200
+
+
+@app.route('/api/roleplays/<int:roleplay_id>', methods=['GET'])
+def get_roleplay_detail(roleplay_id):
+    roleplay = Roleplay.query.filter_by(id=roleplay_id, is_active=True).first()
+    if not roleplay:
+        return _json_error("Roleplay not found.", 404, "roleplay_not_found")
+    return jsonify(roleplay.to_dict()), 200
+
+
+def _serialize_roleplay_assignment(assignment: RoleplayAssignment, recipient: RoleplayAssignmentRecipient | None = None):
+    advisor = User.query.get(assignment.created_by_user_id)
+    return {
+        "id": assignment.id,
+        "title": assignment.title,
+        "instructions": assignment.instructions,
+        "due_date": assignment.due_date.isoformat() if assignment.due_date else None,
+        "assignment_type": assignment.assignment_type,
+        "drill_type": assignment.drill_type,
+        "drill_label": ROLEPLAY_DRILL_TYPES.get(assignment.drill_type) if assignment.drill_type else None,
+        "roleplay_id": assignment.roleplay_id,
+        "roleplay": assignment.roleplay.to_dict() if assignment.roleplay else None,
+        "advisor": advisor.username if advisor else None,
+        "created_at": assignment.created_at.isoformat() if assignment.created_at else None,
+        "is_completed": bool(recipient and recipient.completed_at),
+        "completed_at": recipient.completed_at.isoformat() if recipient and recipient.completed_at else None,
+    }
+
+
+@app.route('/api/admin/roleplay-assignments', methods=['POST'])
+@institution_admin_required
+def create_roleplay_assignment(current_user):
+    data = request.get_json(silent=True) or {}
+    roleplay_id = data.get("roleplay_id")
+    try:
+        roleplay_id = int(roleplay_id)
+    except (TypeError, ValueError):
+        return _json_error("roleplay_id must be an integer", 400, "invalid_roleplay_id")
+
+    roleplay = Roleplay.query.filter_by(id=roleplay_id, is_active=True).first()
+    if not roleplay:
+        return _json_error("Roleplay not found.", 404, "roleplay_not_found")
+
+    assignment_type = (data.get("assignment_type") or "full").strip().lower()
+    if assignment_type not in ("full", "drill"):
+        return _json_error("assignment_type must be 'full' or 'drill'", 400, "invalid_assignment_type")
+
+    drill_type = (data.get("drill_type") or "").strip()
+    if assignment_type == "drill":
+        if drill_type not in ROLEPLAY_DRILL_TYPES:
+            return _json_error("drill_type is invalid", 400, "invalid_drill_type")
+    else:
+        drill_type = None
+
+    due_date_raw = (data.get("due_date") or "").strip()
+    if due_date_raw:
+        try:
+            due_date = datetime.fromisoformat(due_date_raw)
+        except ValueError:
+            return _json_error("due_date must be a valid ISO datetime string", 400, "invalid_due_date")
+    else:
+        due_date = None
+
+    selected_user_ids = data.get("selected_user_ids") or []
+    assign_to_all = bool(data.get("assign_to_all", True))
+    allowed_ids = {
+        u.id for u in User.query.filter_by(
+            institution_id=current_user.institution_id,
+            is_admin=False,
+            is_superadmin=False,
+            is_active=True,
+        ).all()
+    }
+    if assign_to_all:
+        selected_user_ids = list(allowed_ids)
+    else:
+        if not isinstance(selected_user_ids, list):
+            return _json_error("selected_user_ids must be a list", 400, "invalid_selected_users")
+        try:
+            selected_user_ids = [int(uid) for uid in selected_user_ids]
+        except (TypeError, ValueError):
+            return _json_error("selected_user_ids must contain integers", 400, "invalid_selected_users")
+        if any(uid not in allowed_ids for uid in selected_user_ids):
+            return _json_error("selected_user_ids must belong to active learners in your institution", 400, "invalid_selected_users")
+
+    if len(selected_user_ids) == 0:
+        return _json_error("No eligible learners selected.", 400, "no_recipients")
+
+    title = (data.get("title") or "").strip()
+    if not title:
+        title = f"{roleplay.business_name} - {'Full Roleplay' if assignment_type == 'full' else ROLEPLAY_DRILL_TYPES[drill_type]}"
+
+    assignment = RoleplayAssignment(
+        institution_id=current_user.institution_id,
+        created_by_user_id=current_user.id,
+        roleplay_id=roleplay.id,
+        assignment_type=assignment_type,
+        drill_type=drill_type,
+        title=title,
+        instructions=(data.get("instructions") or "").strip() or None,
+        due_date=due_date,
+    )
+    db.session.add(assignment)
+    db.session.flush()
+    for user_id in selected_user_ids:
+        db.session.add(RoleplayAssignmentRecipient(roleplay_assignment_id=assignment.id, user_id=user_id))
+    db.session.commit()
+    return jsonify({"id": assignment.id, "assigned_count": len(selected_user_ids)}), 201
+
+
+@app.route('/api/admin/roleplay-assignments', methods=['GET'])
+@institution_admin_required
+def list_roleplay_assignments(current_user):
+    assignments = RoleplayAssignment.query.filter_by(
+        institution_id=current_user.institution_id,
+        is_active=True,
+    ).order_by(RoleplayAssignment.created_at.desc()).all()
+    payload = []
+    for assignment in assignments:
+        recipients = RoleplayAssignmentRecipient.query.filter_by(roleplay_assignment_id=assignment.id).all()
+        payload.append({
+            **_serialize_roleplay_assignment(assignment),
+            "assigned_count": len(recipients),
+            "completed_count": len([r for r in recipients if r.completed_at]),
+        })
+    return jsonify(payload), 200
+
+
+@app.route('/api/user/roleplay-assignments', methods=['GET'])
+@token_required
+def list_user_roleplay_assignments(current_user):
+    if current_user.is_admin or current_user.is_superadmin:
+        return _json_error("Assignments are only available for learner accounts.", 403, "assignments_forbidden")
+    recipients = RoleplayAssignmentRecipient.query.filter_by(user_id=current_user.id).all()
+    assignment_ids = [row.roleplay_assignment_id for row in recipients]
+    if not assignment_ids:
+        return jsonify([]), 200
+    recipient_by_assignment = {row.roleplay_assignment_id: row for row in recipients}
+    assignments = RoleplayAssignment.query.filter(
+        RoleplayAssignment.id.in_(assignment_ids),
+        RoleplayAssignment.is_active == True
+    ).order_by(RoleplayAssignment.due_date.asc().nullslast(), RoleplayAssignment.created_at.desc()).all()
+    return jsonify([
+        _serialize_roleplay_assignment(item, recipient_by_assignment.get(item.id))
+        for item in assignments
+    ]), 200
+
+
+@app.route('/api/roleplay-assignments/<int:assignment_id>', methods=['GET'])
+@token_required
+def get_roleplay_assignment(current_user, assignment_id):
+    assignment = RoleplayAssignment.query.get(assignment_id)
+    if not assignment or not assignment.is_active:
+        return _json_error("Roleplay assignment not found.", 404, "roleplay_assignment_not_found")
+
+    if current_user.is_superadmin:
+        return jsonify(_serialize_roleplay_assignment(assignment)), 200
+    if current_user.is_admin:
+        if assignment.institution_id != current_user.institution_id:
+            return _json_error("Forbidden", 403, "forbidden")
+        return jsonify(_serialize_roleplay_assignment(assignment)), 200
+
+    recipient = RoleplayAssignmentRecipient.query.filter_by(
+        roleplay_assignment_id=assignment.id,
+        user_id=current_user.id
+    ).first()
+    if not recipient:
+        return _json_error("Forbidden", 403, "forbidden")
+    return jsonify(_serialize_roleplay_assignment(assignment, recipient)), 200
+
+
+@app.route('/api/user/roleplay-assignments/<int:assignment_id>/complete', methods=['POST'])
+@token_required
+def complete_roleplay_assignment(current_user, assignment_id):
+    if current_user.is_admin or current_user.is_superadmin:
+        return _json_error("Assignments are only available for learner accounts.", 403, "assignments_forbidden")
+    recipient = RoleplayAssignmentRecipient.query.filter_by(
+        roleplay_assignment_id=assignment_id,
+        user_id=current_user.id
+    ).first()
+    if not recipient:
+        return _json_error("Roleplay assignment not found.", 404, "roleplay_assignment_not_found")
+    if not recipient.completed_at:
+        recipient.completed_at = datetime.utcnow()
+        db.session.commit()
+    return jsonify({"ok": True, "completed_at": recipient.completed_at.isoformat()}), 200
 
 
 @app.route('/api/questions')
