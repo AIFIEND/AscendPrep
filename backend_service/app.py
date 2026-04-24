@@ -291,6 +291,8 @@ class QuizAttempt(db.Model):
 
 
 class Roleplay(db.Model):
+    __tablename__ = "roleplays"
+
     id = db.Column(db.Integer, primary_key=True)
     event = db.Column(db.String(255), nullable=False)
     industry = db.Column(db.String(255), nullable=False)
@@ -369,7 +371,7 @@ class RoleplayAssignment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     institution_id = db.Column(db.Integer, db.ForeignKey("institution.id"), nullable=False, index=True)
     created_by_user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
-    roleplay_id = db.Column(db.Integer, db.ForeignKey("roleplay.id"), nullable=False, index=True)
+    roleplay_id = db.Column(db.Integer, db.ForeignKey("roleplays.id"), nullable=False, index=True)
     assignment_type = db.Column(db.String(20), nullable=False, default="full")
     drill_type = db.Column(db.String(80), nullable=True)
     title = db.Column(db.String(180), nullable=False)
