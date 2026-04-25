@@ -1,3 +1,27 @@
+export type RoleplayMcqQuestion = {
+  question: string;
+  choices: string[];
+  correctIndex: number;
+  explanation: string;
+};
+
+export type RoleplayTraining = {
+  likely_performance_indicators?: string[];
+  key_terms?: string[];
+  opening_strategy?: {
+    suggested_opening?: string;
+    [key: string]: unknown;
+  };
+  likely_judge_questions?: string[];
+  closing_tip?: string;
+  objective_summary?: string;
+  student_tasks?: string[];
+  strong_response_includes?: string[];
+  common_student_mistakes?: string[];
+  mcq_training_questions?: unknown[];
+  [key: string]: unknown;
+};
+
 export type Roleplay = {
   id: number;
   event: string;
@@ -9,14 +33,7 @@ export type Roleplay = {
   objective: string;
   task_type: string;
   difficulty: string;
-  training: {
-    performance_indicators?: string[];
-    key_terms?: string[];
-    example_opening?: string;
-    example_questions?: string[];
-    closing_tip?: string;
-    [key: string]: unknown;
-  };
+  training: RoleplayTraining;
   is_active: boolean;
   created_at: string;
   updated_at: string;

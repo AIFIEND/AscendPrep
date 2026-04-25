@@ -5,8 +5,8 @@ import { useParams, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { ApiError, apiFetch, getJson } from "@/lib/api";
 import { resolveRole } from "@/lib/role-navigation";
-import type { Roleplay } from "@/lib/roleplays";
-import { ROLEPLAY_DRILL_LABELS, ROLEPLAY_DRILL_OPTIONS } from "@/lib/roleplays";
+import type { Roleplay, RoleplayMcqQuestion } from "@/lib/roleplays";
+import { ROLEPLAY_DRILL_OPTIONS } from "@/lib/roleplays";
 import { PageHeader, PageShell, SectionBlock } from "@/components/ui/page-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
+
+const TRAINING_FALLBACK = "Training content not available yet.";
 
 type RoleplayAssignment = {
   id: number;
@@ -33,6 +35,69 @@ type RoleplayAssignment = {
 type AdminSummary = {
   users: Array<{ id: number; username: string; is_admin: boolean; is_active: boolean }>;
 };
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function parseRoleplayMcqs(value: unknown): RoleplayMcqQuestion[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((raw): RoleplayMcqQuestion | null => {
+      if (!raw || typeof raw !== "object") return null;
+      const item = raw as Record<string, unknown>;
+      const question = typeof item.question === "string" ? item.question : "";
+      if (!question.trim()) return null;
+
+      const options = asStringArray(item.choices ?? item.options ?? item.answer_choices);
+      if (options.length !== 4) return null;
+
+      const explanation = typeof item.explanation === "string" && item.explanation.trim()
+        ? item.explanation
+        : "No explanation provided yet.";
+
+      const answerCandidates = [item.correct_answer, item.correctAnswer, item.correct_option, item.answer];
+      let correctIndex = -1;
+
+      for (const candidate of answerCandidates) {
+        if (typeof candidate === "number" && candidate >= 0 && candidate < options.length) {
+          correctIndex = candidate;
+          break;
+        }
+
+        if (typeof candidate === "string") {
+          const normalized = candidate.trim();
+          const byValue = options.findIndex((option) => option.trim().toLowerCase() === normalized.toLowerCase());
+          if (byValue >= 0) {
+            correctIndex = byValue;
+            break;
+          }
+
+          const letterMatch = normalized.toUpperCase().match(/^[A-D]$/);
+          if (letterMatch) {
+            correctIndex = letterMatch[0].charCodeAt(0) - 65;
+            break;
+          }
+        }
+      }
+
+      if (correctIndex < 0) return null;
+
+      return {
+        question,
+        choices: options,
+        correctIndex,
+        explanation,
+      };
+    })
+    .filter((item): item is RoleplayMcqQuestion => item !== null);
+}
+
+function textValue(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value : TRAINING_FALLBACK;
+}
 
 export default function RoleplayDetailPage() {
   const params = useParams<{ id: string }>();
@@ -96,6 +161,10 @@ export default function RoleplayDetailPage() {
   const [assignError, setAssignError] = useState<string>("");
   const [completing, setCompleting] = useState(false);
 
+  const [practiceStarted, setPracticeStarted] = useState(false);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
+
   const focus = assignment?.assignment_type === "drill" ? assignment.drill_type : null;
 
   const showOverview = !focus;
@@ -106,6 +175,37 @@ export default function RoleplayDetailPage() {
   const showTerms = !focus || focus === "define_key_terms";
   const showClosing = !focus || focus === "plan_closing";
 
+  const training = roleplay?.training ?? {};
+  const performanceIndicators = asStringArray(training.likely_performance_indicators);
+  const keyTerms = asStringArray(training.key_terms);
+  const likelyJudgeQuestions = asStringArray(training.likely_judge_questions);
+  const studentTasks = asStringArray(training.student_tasks);
+  const strongResponseIncludes = asStringArray(training.strong_response_includes);
+  const commonMistakes = asStringArray(training.common_student_mistakes);
+  const mcqQuestions = parseRoleplayMcqs(training.mcq_training_questions);
+
+  const currentQuestion = mcqQuestions[currentQuestionIndex];
+  const selectedForCurrent = selectedAnswers[currentQuestionIndex];
+  const hasAnsweredCurrent = selectedForCurrent !== undefined;
+  const isCurrentCorrect = hasAnsweredCurrent && selectedForCurrent === currentQuestion?.correctIndex;
+  const isPracticeComplete = practiceStarted && currentQuestionIndex >= mcqQuestions.length;
+  const score = mcqQuestions.reduce((acc, question, index) => (
+    selectedAnswers[index] === question.correctIndex ? acc + 1 : acc
+  ), 0);
+
+  const renderListSection = (title: string, items: string[]) => (
+    <div className="rounded-lg border p-3">
+      <p className="text-sm font-medium">{title}</p>
+      {items.length ? (
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+          {items.map((item) => <li key={item}>{item}</li>)}
+        </ul>
+      ) : (
+        <p className="mt-2 text-sm text-muted-foreground">{TRAINING_FALLBACK}</p>
+      )}
+    </div>
+  );
+
   return (
     <PageShell>
       <PageHeader
@@ -113,7 +213,7 @@ export default function RoleplayDetailPage() {
         title={roleplay?.business_name || "Roleplay"}
         description={assignment
           ? `${assignment.assignment_type === "full" ? "Full Roleplay" : `Targeted Drill: ${assignment.drill_label}`} assigned by ${assignment.advisor ?? "your advisor"}.`
-          : "Prepare with a clean structure: scenario, objective, roles, and training guidance."}
+          : "Prepare with focused strategy cards and roleplay practice questions."}
         actions={assignment ? <Badge>{assignment.assignment_type === "full" ? "Full Roleplay" : assignment.drill_label}</Badge> : null}
       />
 
@@ -274,46 +374,119 @@ export default function RoleplayDetailPage() {
             </section>
 
             <section>
-              <h2 className="text-lg font-semibold">Preparation Guide</h2>
-              <div className="mt-3 space-y-3">
-                {showIndicators && (
-                  <div className="rounded-lg border p-3">
-                    <p className="text-sm font-medium">Performance Indicators</p>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                      {(roleplay.training?.performance_indicators || []).map((item: string) => <li key={item}>{item}</li>)}
-                    </ul>
-                  </div>
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold">Preparation Guide</h2>
+                {!practiceStarted && (
+                  <Button variant="default" onClick={() => {
+                    setPracticeStarted(true);
+                    setCurrentQuestionIndex(0);
+                    setSelectedAnswers({});
+                  }}>
+                    Practice This Roleplay
+                  </Button>
                 )}
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                {showIndicators && renderListSection("Performance Indicators", performanceIndicators)}
                 {showTerms && (
                   <div className="rounded-lg border p-3">
                     <p className="text-sm font-medium">Key Terms</p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {(roleplay.training?.key_terms || []).map((term: string) => <Badge key={term} variant="outline">{term}</Badge>)}
-                    </div>
+                    {keyTerms.length ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {keyTerms.map((term) => <Badge key={term} variant="outline">{term}</Badge>)}
+                      </div>
+                    ) : <p className="mt-2 text-sm text-muted-foreground">{TRAINING_FALLBACK}</p>}
                   </div>
                 )}
                 {showOpening && (
-                  <div className="rounded-lg border p-3">
+                  <div className="rounded-lg border p-3 md:col-span-2">
                     <p className="text-sm font-medium">Example Opening</p>
-                    <p className="mt-2 text-sm text-muted-foreground">{roleplay.training?.example_opening || "No opening guidance available."}</p>
+                    <p className="mt-2 text-sm text-muted-foreground">{textValue(training.opening_strategy?.suggested_opening)}</p>
                   </div>
                 )}
-                {showQuestions && (
-                  <div className="rounded-lg border p-3">
-                    <p className="text-sm font-medium">Likely Judge Questions</p>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                      {(roleplay.training?.example_questions || []).map((q: string) => <li key={q}>{q}</li>)}
-                    </ul>
-                  </div>
-                )}
+                {showQuestions && renderListSection("Likely Judge Questions", likelyJudgeQuestions)}
                 {showClosing && (
                   <div className="rounded-lg border p-3">
                     <p className="text-sm font-medium">Closing Tip</p>
-                    <p className="mt-2 text-sm text-muted-foreground">{roleplay.training?.closing_tip || "No closing tip available."}</p>
+                    <p className="mt-2 text-sm text-muted-foreground">{textValue(training.closing_tip)}</p>
                   </div>
                 )}
+                <div className="rounded-lg border p-3 md:col-span-2">
+                  <p className="text-sm font-medium">Objective Summary</p>
+                  <p className="mt-2 text-sm text-muted-foreground">{textValue(training.objective_summary)}</p>
+                </div>
+                {renderListSection("Student Tasks", studentTasks)}
+                {renderListSection("Strong Response Includes", strongResponseIncludes)}
+                {renderListSection("Common Student Mistakes", commonMistakes)}
               </div>
             </section>
+
+            {practiceStarted && (
+              <section className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+                <h2 className="text-lg font-semibold">Roleplay MCQ Practice</h2>
+                {!mcqQuestions.length ? (
+                  <p className="mt-2 text-sm text-muted-foreground">{TRAINING_FALLBACK}</p>
+                ) : isPracticeComplete ? (
+                  <div className="mt-3 space-y-3">
+                    <p className="text-sm font-medium">Final Score: {score} / {mcqQuestions.length}</p>
+                    <Button variant="outline" onClick={() => {
+                      setCurrentQuestionIndex(0);
+                      setSelectedAnswers({});
+                    }}>
+                      Retry Practice
+                    </Button>
+                  </div>
+                ) : currentQuestion ? (
+                  <div className="mt-3 space-y-3">
+                    <p className="text-xs text-muted-foreground">Question {currentQuestionIndex + 1} of {mcqQuestions.length}</p>
+                    <p className="text-sm font-medium">{currentQuestion.question}</p>
+                    <div className="space-y-2">
+                      {currentQuestion.choices.map((choice, index) => {
+                        const isSelected = selectedForCurrent === index;
+                        const isCorrectChoice = currentQuestion.correctIndex === index;
+                        const highlightClass = hasAnsweredCurrent
+                          ? isCorrectChoice
+                            ? "border-emerald-500 bg-emerald-50"
+                            : isSelected
+                              ? "border-destructive/60 bg-destructive/5"
+                              : ""
+                          : "";
+
+                        return (
+                          <button
+                            key={`${currentQuestionIndex}-${choice}`}
+                            type="button"
+                            disabled={hasAnsweredCurrent}
+                            onClick={() => setSelectedAnswers((prev) => ({ ...prev, [currentQuestionIndex]: index }))}
+                            className={`w-full rounded-lg border px-3 py-2 text-left text-sm ${highlightClass}`}
+                          >
+                            {choice}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {hasAnsweredCurrent && (
+                      <div className="rounded-lg border bg-background p-3 text-sm">
+                        <p className={`font-medium ${isCurrentCorrect ? "text-emerald-600" : "text-destructive"}`}>
+                          {isCurrentCorrect ? "Correct" : "Not quite"}
+                        </p>
+                        <p className="mt-1 text-muted-foreground">{currentQuestion.explanation}</p>
+                      </div>
+                    )}
+
+                    <div className="flex justify-end">
+                      <Button
+                        disabled={!hasAnsweredCurrent}
+                        onClick={() => setCurrentQuestionIndex((prev) => prev + 1)}
+                      >
+                        {currentQuestionIndex + 1 === mcqQuestions.length ? "Finish Practice" : "Next Question"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+            )}
           </div>
         )}
       </SectionBlock>
