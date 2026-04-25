@@ -320,7 +320,7 @@ class Roleplay(db.Model):
             'objective': self.objective,
             'task_type': self.task_type,
             'difficulty': self.difficulty,
-            'training': self.training_json,
+            'training': self.training_json or {},
             'is_active': self.is_active,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
