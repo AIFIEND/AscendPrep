@@ -36,6 +36,25 @@ type AdminSummary = {
   users: Array<{ id: number; username: string; is_admin: boolean; is_active: boolean }>;
 };
 
+type RoleplayPracticeSubmitResult = {
+  id: number;
+  score: number;
+  total_questions: number;
+  results_by_skill: Record<string, { correct: number; total: number }>;
+  completed_at: string | null;
+};
+
+type RoleplayPracticeAttempt = {
+  id: number;
+  roleplay_id: number;
+  business_name: string | null;
+  event: string | null;
+  score: number;
+  total_questions: number;
+  results_by_skill: Record<string, { correct: number; total: number }>;
+  completed_at: string | null;
+};
+
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
@@ -164,6 +183,20 @@ export default function RoleplayDetailPage() {
   const [practiceStarted, setPracticeStarted] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
+  const [isSubmittingPractice, setIsSubmittingPractice] = useState(false);
+  const [practiceSubmitError, setPracticeSubmitError] = useState<string | null>(null);
+  const [practiceResult, setPracticeResult] = useState<RoleplayPracticeSubmitResult | null>(null);
+  const [latestAttempt, setLatestAttempt] = useState<RoleplayPracticeAttempt | null>(null);
+
+  useEffect(() => {
+    if (!Number.isFinite(roleplayId) || !session?.user) return;
+    getJson<RoleplayPracticeAttempt[]>("/api/user/roleplay-practice-attempts", { cache: "no-store" })
+      .then((attempts) => {
+        const mostRecent = attempts.find((attempt) => attempt.roleplay_id === roleplayId) ?? null;
+        setLatestAttempt(mostRecent);
+      })
+      .catch(() => setLatestAttempt(null));
+  }, [roleplayId, session?.user, practiceResult]);
 
   const focus = assignment?.assignment_type === "drill" ? assignment.drill_type : null;
 
@@ -192,6 +225,33 @@ export default function RoleplayDetailPage() {
   const score = mcqQuestions.reduce((acc, question, index) => (
     selectedAnswers[index] === question.correctIndex ? acc + 1 : acc
   ), 0);
+
+  useEffect(() => {
+    if (!isPracticeComplete || !roleplay || isSubmittingPractice || practiceResult) return;
+
+    const answersPayload = Object.entries(selectedAnswers).reduce<Record<string, string>>((acc, [index, choiceIndex]) => {
+      const question = mcqQuestions[Number(index)];
+      const answer = question?.choices?.[choiceIndex];
+      if (answer) acc[index] = answer;
+      return acc;
+    }, {});
+
+    setIsSubmittingPractice(true);
+    setPracticeSubmitError(null);
+    apiFetch(`/api/roleplays/${roleplay.id}/practice/submit`, {
+      method: "POST",
+      body: JSON.stringify({
+        answers: answersPayload,
+        roleplay_assignment_id: roleplayAssignmentId || null,
+      }),
+    })
+      .then((res) => res.json() as Promise<RoleplayPracticeSubmitResult>)
+      .then((result) => setPracticeResult(result))
+      .catch((err) => {
+        setPracticeSubmitError(err instanceof ApiError ? err.message : "Could not submit your practice score. Please try again.");
+      })
+      .finally(() => setIsSubmittingPractice(false));
+  }, [isPracticeComplete, isSubmittingPractice, mcqQuestions, practiceResult, roleplay, roleplayAssignmentId, selectedAnswers]);
 
   const renderListSection = (title: string, items: string[]) => (
     <div className="rounded-lg border p-3">
@@ -386,6 +446,12 @@ export default function RoleplayDetailPage() {
                   </Button>
                 )}
               </div>
+              {latestAttempt && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Latest saved score: {latestAttempt.score} / {latestAttempt.total_questions}
+                  {latestAttempt.completed_at ? ` • ${new Date(latestAttempt.completed_at).toLocaleString()}` : ""}
+                </p>
+              )}
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 {showIndicators && renderListSection("Performance Indicators", performanceIndicators)}
                 {showTerms && (
@@ -428,10 +494,20 @@ export default function RoleplayDetailPage() {
                   <p className="mt-2 text-sm text-muted-foreground">{TRAINING_FALLBACK}</p>
                 ) : isPracticeComplete ? (
                   <div className="mt-3 space-y-3">
-                    <p className="text-sm font-medium">Final Score: {score} / {mcqQuestions.length}</p>
+                    {isSubmittingPractice ? (
+                      <p className="text-sm text-muted-foreground">Submitting your results…</p>
+                    ) : practiceSubmitError ? (
+                      <p className="text-sm text-destructive">{practiceSubmitError}</p>
+                    ) : (
+                      <p className="text-sm font-medium">
+                        Final Score: {practiceResult?.score ?? score} / {practiceResult?.total_questions ?? mcqQuestions.length}
+                      </p>
+                    )}
                     <Button variant="outline" onClick={() => {
                       setCurrentQuestionIndex(0);
                       setSelectedAnswers({});
+                      setPracticeSubmitError(null);
+                      setPracticeResult(null);
                     }}>
                       Retry Practice
                     </Button>
