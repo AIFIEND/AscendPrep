@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { ApiError, apiFetch, getJson } from "@/lib/api";
@@ -186,6 +186,7 @@ export default function RoleplayDetailPage() {
   const [isSubmittingPractice, setIsSubmittingPractice] = useState(false);
   const [practiceSubmitError, setPracticeSubmitError] = useState<string | null>(null);
   const [practiceResult, setPracticeResult] = useState<RoleplayPracticeSubmitResult | null>(null);
+  const [hasSubmittedPractice, setHasSubmittedPractice] = useState(false);
   const [latestAttempt, setLatestAttempt] = useState<RoleplayPracticeAttempt | null>(null);
 
   useEffect(() => {
@@ -226,8 +227,8 @@ export default function RoleplayDetailPage() {
     selectedAnswers[index] === question.correctIndex ? acc + 1 : acc
   ), 0);
 
-  useEffect(() => {
-    if (!isPracticeComplete || !roleplay || isSubmittingPractice || practiceResult) return;
+  const submitPractice = useCallback(async () => {
+    if (!roleplay) return;
 
     const answersPayload = Object.entries(selectedAnswers).reduce<Record<string, string>>((acc, [index, choiceIndex]) => {
       const question = mcqQuestions[Number(index)];
@@ -238,20 +239,28 @@ export default function RoleplayDetailPage() {
 
     setIsSubmittingPractice(true);
     setPracticeSubmitError(null);
-    apiFetch(`/api/roleplays/${roleplay.id}/practice/submit`, {
-      method: "POST",
-      body: JSON.stringify({
-        answers: answersPayload,
-        roleplay_assignment_id: roleplayAssignmentId || null,
-      }),
-    })
-      .then((res) => res.json() as Promise<RoleplayPracticeSubmitResult>)
-      .then((result) => setPracticeResult(result))
-      .catch((err) => {
-        setPracticeSubmitError(err instanceof ApiError ? err.message : "Could not submit your practice score. Please try again.");
-      })
-      .finally(() => setIsSubmittingPractice(false));
-  }, [isPracticeComplete, isSubmittingPractice, mcqQuestions, practiceResult, roleplay, roleplayAssignmentId, selectedAnswers]);
+    setHasSubmittedPractice(true);
+    try {
+      const res = await apiFetch(`/api/roleplays/${roleplay.id}/practice/submit`, {
+        method: "POST",
+        body: JSON.stringify({
+          answers: answersPayload,
+          roleplay_assignment_id: roleplayAssignmentId || null,
+        }),
+      });
+      const result = await res.json() as RoleplayPracticeSubmitResult;
+      setPracticeResult(result);
+    } catch (err) {
+      setPracticeSubmitError(err instanceof ApiError ? err.message : "Could not submit your practice score. Please try again.");
+    } finally {
+      setIsSubmittingPractice(false);
+    }
+  }, [mcqQuestions, roleplay, roleplayAssignmentId, selectedAnswers]);
+
+  useEffect(() => {
+    if (!isPracticeComplete || hasSubmittedPractice || practiceResult || isSubmittingPractice) return;
+    submitPractice();
+  }, [hasSubmittedPractice, isPracticeComplete, isSubmittingPractice, practiceResult, submitPractice]);
 
   const renderListSection = (title: string, items: string[]) => (
     <div className="rounded-lg border p-3">
@@ -441,6 +450,9 @@ export default function RoleplayDetailPage() {
                     setPracticeStarted(true);
                     setCurrentQuestionIndex(0);
                     setSelectedAnswers({});
+                    setPracticeSubmitError(null);
+                    setPracticeResult(null);
+                    setHasSubmittedPractice(false);
                   }}>
                     Practice This Roleplay
                   </Button>
@@ -508,9 +520,18 @@ export default function RoleplayDetailPage() {
                       setSelectedAnswers({});
                       setPracticeSubmitError(null);
                       setPracticeResult(null);
+                      setHasSubmittedPractice(false);
                     }}>
                       Retry Practice
                     </Button>
+                    {practiceSubmitError && (
+                      <Button
+                        onClick={() => submitPractice()}
+                        disabled={isSubmittingPractice}
+                      >
+                        Try submitting again
+                      </Button>
+                    )}
                   </div>
                 ) : currentQuestion ? (
                   <div className="mt-3 space-y-3">

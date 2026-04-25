@@ -2130,10 +2130,14 @@ def _parse_roleplay_mcq_questions(training_json: dict | None):
             continue
 
         parsed.append({
+            "question_id": raw.get("id") if isinstance(raw.get("id"), (str, int)) else None,
+            "type": raw.get("type").strip() if isinstance(raw.get("type"), str) and raw.get("type").strip() else None,
             "question": question,
             "choices": normalized_choices,
             "correct_index": correct_index,
+            "correct_answer": normalized_choices[correct_index],
             "skill_tested": (raw.get("skill_tested") or raw.get("type") or "General").strip() if isinstance(raw.get("skill_tested") or raw.get("type") or "General", str) else "General",
+            "difficulty": raw.get("difficulty").strip() if isinstance(raw.get("difficulty"), str) and raw.get("difficulty").strip() else None,
         })
     return parsed
 
@@ -2183,22 +2187,33 @@ def submit_roleplay_practice(current_user, roleplay_id):
 
     score = 0
     skill_totals = defaultdict(lambda: {"correct": 0, "total": 0})
-    safe_answers = {}
+    safe_answers = []
 
     for index, question in enumerate(parsed_questions):
         answer_key = str(index)
         submitted_value = submitted_answers.get(answer_key)
         if submitted_value is not None and not isinstance(submitted_value, str):
             return _json_error(f"answers.{answer_key} must be a string", 400, "invalid_answers")
-        safe_answers[answer_key] = submitted_value if isinstance(submitted_value, str) else None
-
         skill_name = question["skill_tested"] or "General"
         skill_totals[skill_name]["total"] += 1
 
-        correct_choice = question["choices"][question["correct_index"]]
-        if isinstance(submitted_value, str) and _normalize_mcq_value(submitted_value) == _normalize_mcq_value(correct_choice):
+        correct_choice = question["correct_answer"]
+        is_correct = isinstance(submitted_value, str) and _normalize_mcq_value(submitted_value) == _normalize_mcq_value(correct_choice)
+        if is_correct:
             score += 1
             skill_totals[skill_name]["correct"] += 1
+
+        safe_answers.append({
+            "question_index": index,
+            "question_id": question["question_id"],
+            "type": question["type"],
+            "question": question["question"],
+            "selected_answer": submitted_value if isinstance(submitted_value, str) else None,
+            "correct_answer": correct_choice,
+            "is_correct": is_correct,
+            "skill_tested": skill_name,
+            "difficulty": question["difficulty"],
+        })
 
     total_questions = len(parsed_questions)
     results_by_skill = _results_by_skill_payload(skill_totals)
