@@ -394,6 +394,20 @@ class RoleplayAssignmentRecipient(db.Model):
         db.UniqueConstraint("roleplay_assignment_id", "user_id", name="uq_roleplay_assignment_recipient"),
     )
 
+
+class RoleplayPracticeAttempt(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    roleplay_id = db.Column(db.Integer, db.ForeignKey("roleplays.id"), nullable=False, index=True)
+    roleplay_assignment_id = db.Column(db.Integer, db.ForeignKey("roleplay_assignment.id"), nullable=True, index=True)
+    score = db.Column(db.Integer, nullable=False)
+    total_questions = db.Column(db.Integer, nullable=False)
+    answers_json = db.Column(JSONB, nullable=False)
+    results_by_skill_json = db.Column(JSONB, nullable=False, default=dict)
+    completed_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    roleplay = db.relationship("Roleplay")
+
 def _superadmin_exists() -> bool:
     return User.query.filter_by(is_superadmin=True).count() > 0
 
@@ -2061,6 +2075,193 @@ def get_roleplay_detail(roleplay_id):
     if not roleplay:
         return _json_error("Roleplay not found.", 404, "roleplay_not_found")
     return jsonify(roleplay.to_dict()), 200
+
+
+def _normalize_mcq_value(value):
+    return value.strip().lower() if isinstance(value, str) else ""
+
+
+def _parse_roleplay_mcq_questions(training_json: dict | None):
+    if not isinstance(training_json, dict):
+        return []
+    raw_questions = training_json.get("mcq_training_questions")
+    if not isinstance(raw_questions, list):
+        return []
+
+    parsed = []
+    for raw in raw_questions:
+        if not isinstance(raw, dict):
+            continue
+        question = (raw.get("question") or "").strip()
+        if not question:
+            continue
+        choices = raw.get("choices") or raw.get("options") or raw.get("answer_choices")
+        if not isinstance(choices, list):
+            continue
+        normalized_choices = [choice for choice in choices if isinstance(choice, str) and choice.strip()]
+        if len(normalized_choices) != 4:
+            continue
+
+        answer_candidates = [
+            raw.get("correct_answer"),
+            raw.get("correctAnswer"),
+            raw.get("correct_option"),
+            raw.get("answer"),
+        ]
+        correct_index = -1
+        for candidate in answer_candidates:
+            if isinstance(candidate, int) and 0 <= candidate < len(normalized_choices):
+                correct_index = candidate
+                break
+            if isinstance(candidate, str):
+                cleaned = candidate.strip()
+                by_choice = next(
+                    (idx for idx, option in enumerate(normalized_choices) if _normalize_mcq_value(option) == _normalize_mcq_value(cleaned)),
+                    None,
+                )
+                if by_choice is not None:
+                    correct_index = by_choice
+                    break
+                if re.match(r"^[A-Da-d]$", cleaned):
+                    correct_index = ord(cleaned.upper()) - 65
+                    break
+
+        if correct_index < 0:
+            continue
+
+        parsed.append({
+            "question_id": raw.get("id") if isinstance(raw.get("id"), (str, int)) else None,
+            "type": raw.get("type").strip() if isinstance(raw.get("type"), str) and raw.get("type").strip() else None,
+            "question": question,
+            "choices": normalized_choices,
+            "correct_index": correct_index,
+            "correct_answer": normalized_choices[correct_index],
+            "skill_tested": (raw.get("skill_tested") or raw.get("type") or "General").strip() if isinstance(raw.get("skill_tested") or raw.get("type") or "General", str) else "General",
+            "difficulty": raw.get("difficulty").strip() if isinstance(raw.get("difficulty"), str) and raw.get("difficulty").strip() else None,
+        })
+    return parsed
+
+
+def _results_by_skill_payload(skill_totals):
+    return {
+        skill: {
+            "correct": values["correct"],
+            "total": values["total"],
+        }
+        for skill, values in skill_totals.items()
+    }
+
+
+@app.route('/api/roleplays/<int:roleplay_id>/practice/submit', methods=['POST'])
+@token_required
+def submit_roleplay_practice(current_user, roleplay_id):
+    roleplay = Roleplay.query.filter_by(id=roleplay_id, is_active=True).first()
+    if not roleplay:
+        return _json_error("Roleplay not found.", 404, "roleplay_not_found")
+
+    data = request.get_json(silent=True) or {}
+    submitted_answers = data.get("answers")
+    if not isinstance(submitted_answers, dict):
+        return _json_error("answers must be an object keyed by question index.", 400, "invalid_answers")
+
+    roleplay_assignment_id = data.get("roleplay_assignment_id")
+    if roleplay_assignment_id is not None:
+        try:
+            roleplay_assignment_id = int(roleplay_assignment_id)
+        except (TypeError, ValueError):
+            return _json_error("roleplay_assignment_id must be an integer.", 400, "invalid_roleplay_assignment_id")
+        assignment = RoleplayAssignment.query.get(roleplay_assignment_id)
+        if not assignment or assignment.roleplay_id != roleplay.id:
+            return _json_error("roleplay_assignment_id does not match this roleplay.", 400, "invalid_roleplay_assignment_id")
+        if not (current_user.is_admin or current_user.is_superadmin):
+            recipient = RoleplayAssignmentRecipient.query.filter_by(
+                roleplay_assignment_id=roleplay_assignment_id,
+                user_id=current_user.id,
+            ).first()
+            if not recipient:
+                return _json_error("Forbidden", 403, "forbidden")
+
+    parsed_questions = _parse_roleplay_mcq_questions(roleplay.training_json)
+    if not parsed_questions:
+        return _json_error("This roleplay does not have valid practice questions.", 400, "roleplay_mcq_missing")
+
+    score = 0
+    skill_totals = defaultdict(lambda: {"correct": 0, "total": 0})
+    safe_answers = []
+
+    for index, question in enumerate(parsed_questions):
+        answer_key = str(index)
+        submitted_value = submitted_answers.get(answer_key)
+        if submitted_value is not None and not isinstance(submitted_value, str):
+            return _json_error(f"answers.{answer_key} must be a string", 400, "invalid_answers")
+        skill_name = question["skill_tested"] or "General"
+        skill_totals[skill_name]["total"] += 1
+
+        correct_choice = question["correct_answer"]
+        is_correct = isinstance(submitted_value, str) and _normalize_mcq_value(submitted_value) == _normalize_mcq_value(correct_choice)
+        if is_correct:
+            score += 1
+            skill_totals[skill_name]["correct"] += 1
+
+        safe_answers.append({
+            "question_index": index,
+            "question_id": question["question_id"],
+            "type": question["type"],
+            "question": question["question"],
+            "selected_answer": submitted_value if isinstance(submitted_value, str) else None,
+            "correct_answer": correct_choice,
+            "is_correct": is_correct,
+            "skill_tested": skill_name,
+            "difficulty": question["difficulty"],
+        })
+
+    total_questions = len(parsed_questions)
+    results_by_skill = _results_by_skill_payload(skill_totals)
+
+    attempt = RoleplayPracticeAttempt(
+        user_id=current_user.id,
+        roleplay_id=roleplay.id,
+        roleplay_assignment_id=roleplay_assignment_id,
+        score=score,
+        total_questions=total_questions,
+        answers_json=safe_answers,
+        results_by_skill_json=results_by_skill,
+    )
+    db.session.add(attempt)
+    db.session.commit()
+
+    return jsonify({
+        "id": attempt.id,
+        "score": attempt.score,
+        "total_questions": attempt.total_questions,
+        "results_by_skill": attempt.results_by_skill_json or {},
+        "completed_at": attempt.completed_at.isoformat() if attempt.completed_at else None,
+    }), 201
+
+
+@app.route('/api/user/roleplay-practice-attempts', methods=['GET'])
+@token_required
+def list_user_roleplay_practice_attempts(current_user):
+    attempts = RoleplayPracticeAttempt.query.filter_by(user_id=current_user.id).order_by(RoleplayPracticeAttempt.completed_at.desc()).limit(100).all()
+    if not attempts:
+        return jsonify([]), 200
+    roleplay_ids = list({attempt.roleplay_id for attempt in attempts})
+    roleplays = Roleplay.query.filter(Roleplay.id.in_(roleplay_ids)).all()
+    roleplay_by_id = {roleplay.id: roleplay for roleplay in roleplays}
+    payload = []
+    for attempt in attempts:
+        roleplay = roleplay_by_id.get(attempt.roleplay_id)
+        payload.append({
+            "id": attempt.id,
+            "roleplay_id": attempt.roleplay_id,
+            "business_name": roleplay.business_name if roleplay else None,
+            "event": roleplay.event if roleplay else None,
+            "score": attempt.score,
+            "total_questions": attempt.total_questions,
+            "results_by_skill": attempt.results_by_skill_json or {},
+            "completed_at": attempt.completed_at.isoformat() if attempt.completed_at else None,
+        })
+    return jsonify(payload), 200
 
 
 def _serialize_roleplay_assignment(assignment: RoleplayAssignment, recipient: RoleplayAssignmentRecipient | None = None):
