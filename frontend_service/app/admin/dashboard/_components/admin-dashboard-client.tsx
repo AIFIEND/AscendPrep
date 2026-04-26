@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { ApiError, getJson, apiFetch } from "@/lib/api";
 import { useSession } from "next-auth/react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -919,6 +920,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                       <TableHead>Due date</TableHead>
                       <TableHead>Completion</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -932,6 +934,11 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                           <TableCell>{assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}</TableCell>
                           <TableCell>{assignment.completed_count}/{assignment.assigned_count}</TableCell>
                           <TableCell><Badge variant={status === "Completed" ? "secondary" : status === "Overdue" ? "destructive" : "default"}>{status}</Badge></TableCell>
+                          <TableCell>
+                            <Link className="text-sm underline" href={`/admin/assignments/${assignment.id}`}>
+                              View details
+                            </Link>
+                          </TableCell>
                         </TableRow>
                       );
                     })}
@@ -946,6 +953,11 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                           <TableCell>{assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}</TableCell>
                           <TableCell>{assignment.completed_count}/{assignment.assigned_count}</TableCell>
                           <TableCell><Badge variant={status === "Completed" ? "secondary" : status === "Overdue" ? "destructive" : "default"}>{status}</Badge></TableCell>
+                          <TableCell>
+                            <Link className="text-sm underline" href={`/admin/roleplay-assignments/${assignment.id}`}>
+                              View details
+                            </Link>
+                          </TableCell>
                         </TableRow>
                       );
                     })}
