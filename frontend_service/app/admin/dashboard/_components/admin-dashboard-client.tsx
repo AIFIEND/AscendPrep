@@ -145,6 +145,12 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
   const [error, setError] = useState<null | "AccessDenied" | "LoadFailed">(null);
   const [actionError, setActionError] = useState<string>("");
   const [actionSuccess, setActionSuccess] = useState<string>("");
+  const [objectiveActionError, setObjectiveActionError] = useState<string>("");
+  const [objectiveActionSuccess, setObjectiveActionSuccess] = useState<string>("");
+  const [roleplayActionError, setRoleplayActionError] = useState<string>("");
+  const [roleplayActionSuccess, setRoleplayActionSuccess] = useState<string>("");
+  const [creatingObjectiveAssignment, setCreatingObjectiveAssignment] = useState(false);
+  const [creatingRoleplayAssignment, setCreatingRoleplayAssignment] = useState(false);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [config, setConfig] = useState<QuizConfig>({ categories: [], difficulties: [] });
   const [assignmentForm, setAssignmentForm] = useState(DEFAULT_ASSIGNMENT_FORM);
@@ -252,9 +258,10 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
   };
 
   const createAssignment = async () => {
-    if (!token || !assignmentForm.title.trim()) return;
-    setActionError("");
-    setActionSuccess("");
+    if (!token || !assignmentForm.title.trim() || creatingObjectiveAssignment) return;
+    setObjectiveActionError("");
+    setObjectiveActionSuccess("");
+    setCreatingObjectiveAssignment(true);
 
     try {
       await apiFetch("/api/admin/assignments", {
@@ -271,16 +278,19 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
       });
       await loadData();
       setAssignmentForm(DEFAULT_ASSIGNMENT_FORM);
-      setActionSuccess("Assignment created successfully.");
+      setObjectiveActionSuccess("Objective test assignment created successfully.");
     } catch (e: unknown) {
-      setActionError(e instanceof ApiError ? e.message : "Could not create assignment.");
+      setObjectiveActionError(e instanceof ApiError ? e.message : "Could not create objective test assignment.");
+    } finally {
+      setCreatingObjectiveAssignment(false);
     }
   };
 
   const createRoleplayAssignment = async () => {
-    if (!token || !roleplayForm.roleplay_id || roleplayForm.student_ids.length === 0) return;
-    setActionError("");
-    setActionSuccess("");
+    if (!token || !roleplayForm.roleplay_id || roleplayForm.student_ids.length === 0 || creatingRoleplayAssignment) return;
+    setRoleplayActionError("");
+    setRoleplayActionSuccess("");
+    setCreatingRoleplayAssignment(true);
     try {
       await apiFetch("/api/admin/roleplay-assignments", {
         method: "POST",
@@ -305,9 +315,11 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
         student_ids: [],
       });
       await loadData();
-      setActionSuccess("Roleplay assignment created successfully.");
+      setRoleplayActionSuccess("Roleplay assignment created successfully.");
     } catch (e: unknown) {
-      setActionError(e instanceof ApiError ? e.message : "Could not create roleplay assignment.");
+      setRoleplayActionError(e instanceof ApiError ? e.message : "Could not create roleplay assignment.");
+    } finally {
+      setCreatingRoleplayAssignment(false);
     }
   };
 
@@ -390,17 +402,21 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
               <CardDescription>Track completion, due dates, and required settings at a glance.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {assignments.slice(0, 5).map((assignment) => (
-                <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-3 text-sm space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium">{assignment.title}</span>
-                    <span>{assignment.completed_count}/{assignment.assigned_count} completed</span>
+              {assignments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No objective assignments have been created yet. Use the Assignments tab to create the first one.</p>
+              ) : (
+                assignments.slice(0, 5).map((assignment) => (
+                  <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-3 text-sm space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{assignment.title}</span>
+                      <span>{assignment.completed_count}/{assignment.assigned_count} completed</span>
+                    </div>
+                    <p className="text-muted-foreground">
+                      {assignment.mode.toUpperCase()} · {assignment.question_count} questions · Due {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}
+                    </p>
                   </div>
-                  <p className="text-muted-foreground">
-                    {assignment.mode.toUpperCase()} · {assignment.question_count} questions · Due {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}
-                  </p>
-                </div>
-              ))}
+                ))
+              )}
             </CardContent>
           </SectionBlock>
 
@@ -424,7 +440,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                   <div>
                     <p className="mb-2 text-sm font-medium">Recent Activity</p>
                     {roleplaySummary.recent_activity.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No recent roleplay practice activity yet.</p>
+                      <p className="text-sm text-muted-foreground">No recent roleplay practice activity yet. Encourage learners to start a roleplay to populate activity.</p>
                     ) : (
                       <div className="space-y-2">
                         {roleplaySummary.recent_activity.map((item) => (
@@ -579,16 +595,16 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
               <CardDescription>Build targeted practice or tests for all learners or selected students.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {actionError && (
+              {objectiveActionError && (
                 <Alert className="border-destructive/50">
-                  <AlertTitle>Couldn’t create assignment</AlertTitle>
-                  <AlertDescription>{actionError}</AlertDescription>
+                  <AlertTitle>Couldn’t create objective assignment</AlertTitle>
+                  <AlertDescription>{objectiveActionError}</AlertDescription>
                 </Alert>
               )}
-              {actionSuccess && (
+              {objectiveActionSuccess && (
                 <Alert>
                   <AlertTitle>Success</AlertTitle>
-                  <AlertDescription>{actionSuccess}</AlertDescription>
+                  <AlertDescription>{objectiveActionSuccess}</AlertDescription>
                 </Alert>
               )}
 
@@ -764,7 +780,9 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                 </div>
               </div>
 
-              <Button onClick={createAssignment}>Create assignment</Button>
+              <Button onClick={createAssignment} disabled={creatingObjectiveAssignment}>
+                {creatingObjectiveAssignment ? "Creating..." : "Create assignment"}
+              </Button>
             </CardContent>
           </Card>
 
@@ -774,6 +792,18 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
               <CardDescription>Assign MCQ Drill or Full Roleplay Practice to selected students.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {roleplayActionError && (
+                <Alert className="border-destructive/50">
+                  <AlertTitle>Couldn’t create roleplay assignment</AlertTitle>
+                  <AlertDescription>{roleplayActionError}</AlertDescription>
+                </Alert>
+              )}
+              {roleplayActionSuccess && (
+                <Alert>
+                  <AlertTitle>Success</AlertTitle>
+                  <AlertDescription>{roleplayActionSuccess}</AlertDescription>
+                </Alert>
+              )}
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-1">
                   <Label>Roleplay</Label>
@@ -866,7 +896,9 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                   ))}
                 </div>
               </div>
-              <Button onClick={createRoleplayAssignment}>Create roleplay assignment</Button>
+              <Button onClick={createRoleplayAssignment} disabled={creatingRoleplayAssignment}>
+                {creatingRoleplayAssignment ? "Creating..." : "Create roleplay assignment"}
+              </Button>
             </CardContent>
           </Card>
 
@@ -876,28 +908,32 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
               <CardDescription>Assignment specs and completion metrics.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {assignments.map((assignment) => (
-                <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-3 text-sm space-y-1">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">{assignment.title}</span>
-                    <span>{assignment.completed_count}/{assignment.assigned_count} completed</span>
+              {assignments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No objective test assignments to track yet. Create one above to start tracking completion.</p>
+              ) : (
+                assignments.map((assignment) => (
+                  <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-3 text-sm space-y-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium">{assignment.title}</span>
+                      <span>{assignment.completed_count}/{assignment.assigned_count} completed</span>
+                    </div>
+                    {assignment.description && <p className="text-muted-foreground">{assignment.description}</p>}
+                    <p className="text-muted-foreground">
+                      {assignment.mode.toUpperCase()} · {assignment.question_count} questions · Due {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}
+                    </p>
+                    <p className="text-muted-foreground">
+                      Audience: {assignment.assign_to_all ? "All learners" : "Selected learners"} · Time limit: {assignment.time_limit_minutes ? `${assignment.time_limit_minutes} min` : "None"}
+                    </p>
+                    <p className="text-muted-foreground">
+                      Categories: {assignment.categories.length ? assignment.categories.join(", ") : "Any"} · Difficulties: {assignment.difficulties.length ? assignment.difficulties.join(", ") : "Any"}
+                    </p>
+                    <p className="text-muted-foreground">
+                      Avg score: {assignment.average_score == null ? "—" : `${assignment.average_score.toFixed(1)}%`} · Shuffle: {assignment.shuffle_questions ? "On" : "Off"} · Explanations: {assignment.show_explanations ? "On" : "Off"}
+                      {assignment.minimum_passing_score ? ` · Passing target: ${assignment.minimum_passing_score}%` : ""}
+                    </p>
                   </div>
-                  {assignment.description && <p className="text-muted-foreground">{assignment.description}</p>}
-                  <p className="text-muted-foreground">
-                    {assignment.mode.toUpperCase()} · {assignment.question_count} questions · Due {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}
-                  </p>
-                  <p className="text-muted-foreground">
-                    Audience: {assignment.assign_to_all ? "All learners" : "Selected learners"} · Time limit: {assignment.time_limit_minutes ? `${assignment.time_limit_minutes} min` : "None"}
-                  </p>
-                  <p className="text-muted-foreground">
-                    Categories: {assignment.categories.length ? assignment.categories.join(", ") : "Any"} · Difficulties: {assignment.difficulties.length ? assignment.difficulties.join(", ") : "Any"}
-                  </p>
-                  <p className="text-muted-foreground">
-                    Avg score: {assignment.average_score == null ? "—" : `${assignment.average_score.toFixed(1)}%`} · Shuffle: {assignment.shuffle_questions ? "On" : "Off"} · Explanations: {assignment.show_explanations ? "On" : "Off"}
-                    {assignment.minimum_passing_score ? ` · Passing target: ${assignment.minimum_passing_score}%` : ""}
-                  </p>
-                </div>
-              ))}
+                ))
+              )}
             </CardContent>
           </Card>
 
@@ -907,24 +943,28 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
               <CardDescription>Track assigned MCQ Drill and Full Roleplay Practice work.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {roleplayAssignments.map((assignment) => (
-                <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-3 text-sm space-y-1">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">{assignment.title}</span>
-                    <span>{assignment.completed_count}/{assignment.assigned_count} completed</span>
+              {roleplayAssignments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No roleplay assignments to track yet. Create one above to start monitoring roleplay completion.</p>
+              ) : (
+                roleplayAssignments.map((assignment) => (
+                  <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-3 text-sm space-y-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium">{assignment.title}</span>
+                      <span>{assignment.completed_count}/{assignment.assigned_count} completed</span>
+                    </div>
+                    <p className="text-muted-foreground">
+                      {assignment.roleplay?.business_name ?? `Roleplay #${assignment.roleplay_id}`} · {assignment.roleplay?.event ?? "Event not available"}
+                    </p>
+                    <p className="text-muted-foreground">
+                      Type: {assignment.assignment_type === "mcq_drill" ? "MCQ Drill" : "Full Roleplay Practice"}
+                      {assignment.assignment_type === "mcq_drill" && assignment.drill_label ? ` · ${assignment.drill_label}` : ""}
+                    </p>
+                    <p className="text-muted-foreground">
+                      Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"} · Advisor: {assignment.advisor ?? "Advisor"}
+                    </p>
                   </div>
-                  <p className="text-muted-foreground">
-                    {assignment.roleplay?.business_name ?? `Roleplay #${assignment.roleplay_id}`} · {assignment.roleplay?.event ?? "Event not available"}
-                  </p>
-                  <p className="text-muted-foreground">
-                    Type: {assignment.assignment_type === "mcq_drill" ? "MCQ Drill" : "Full Roleplay Practice"}
-                    {assignment.assignment_type === "mcq_drill" && assignment.drill_label ? ` · ${assignment.drill_label}` : ""}
-                  </p>
-                  <p className="text-muted-foreground">
-                    Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"} · Advisor: {assignment.advisor ?? "Advisor"}
-                  </p>
-                </div>
-              ))}
+                ))
+              )}
             </CardContent>
           </Card>
         </>
