@@ -49,10 +49,6 @@ type LearnerRoleplayAssignment = {
   is_completed: boolean;
 };
 
-type RoleplayPracticeSummary = {
-  total_attempts: number;
-};
-
 export function StudentDashboardClient() {
   const { data: session } = useSession();
   const token = session?.user?.backendToken;
@@ -64,7 +60,6 @@ export function StudentDashboardClient() {
   const [assignmentsLoading, setAssignmentsLoading] = useState(true);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [startingAssignmentId, setStartingAssignmentId] = useState<number | null>(null);
-  const [roleplayProgress, setRoleplayProgress] = useState<RoleplayPracticeSummary | null>(null);
   const [roleplayAssignmentsLoading, setRoleplayAssignmentsLoading] = useState(true);
   const [roleplayAssignmentError, setRoleplayAssignmentError] = useState<string | null>(null);
 
@@ -77,50 +72,70 @@ export function StudentDashboardClient() {
       .then(setSummary)
       .catch(() => setSummary(null));
 
-    setAssignmentsLoading(true);
-    getJson<LearnerAssignment[]>("/api/user/assignments", {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    })
-      .then((rows) => {
-        setAssignments(rows ?? []);
-        setAssignmentError(null);
+    if (isInstitutionStudent) {
+      setAssignmentsLoading(true);
+      getJson<LearnerAssignment[]>("/api/user/assignments", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
       })
-      .catch((err) => {
-        const message = err instanceof ApiError ? err.message : "Could not load assignments.";
-        setAssignmentError(message);
-        setAssignments([]);
-      })
-      .finally(() => setAssignmentsLoading(false));
+        .then((rows) => {
+          setAssignments(rows ?? []);
+          setAssignmentError(null);
+        })
+        .catch((err) => {
+          const message = err instanceof ApiError ? err.message : "Could not load assignments.";
+          setAssignmentError(message);
+          setAssignments([]);
+        })
+        .finally(() => setAssignmentsLoading(false));
 
-    setRoleplayAssignmentsLoading(true);
-    getJson<LearnerRoleplayAssignment[]>("/api/user/roleplay-assignments", {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    })
-      .then((rows) => {
-        setRoleplayAssignments(rows ?? []);
-        setRoleplayAssignmentError(null);
+      setRoleplayAssignmentsLoading(true);
+      getJson<LearnerRoleplayAssignment[]>("/api/user/roleplay-assignments", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
       })
-      .catch((err) => {
-        setRoleplayAssignments([]);
-        setRoleplayAssignmentError(err instanceof ApiError ? err.message : "Could not load roleplay assignments.");
-      })
-      .finally(() => setRoleplayAssignmentsLoading(false));
+        .then((rows) => {
+          setRoleplayAssignments(rows ?? []);
+          setRoleplayAssignmentError(null);
+        })
+        .catch((err) => {
+          setRoleplayAssignments([]);
+          setRoleplayAssignmentError(err instanceof ApiError ? err.message : "Could not load roleplay assignments.");
+        })
+        .finally(() => setRoleplayAssignmentsLoading(false));
+      return;
+    }
 
-    getJson<RoleplayPracticeSummary>("/api/user/roleplay-practice-summary", {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    })
-      .then((data) => setRoleplayProgress(data))
-      .catch(() => setRoleplayProgress(null));
-  }, [token]);
+    setAssignments([]);
+    setRoleplayAssignments([]);
+    setAssignmentError(null);
+    setRoleplayAssignmentError(null);
+    setAssignmentsLoading(false);
+    setRoleplayAssignmentsLoading(false);
+  }, [isInstitutionStudent, token]);
 
   const inProgressObjectiveAssignment = useMemo(
     () => assignments.find((assignment) => Boolean(assignment.in_progress_attempt_id)),
     [assignments],
   );
-  const hasAssignedWork = assignments.length > 0 || roleplayAssignments.length > 0;
+  const actionableObjectiveAssignments = useMemo(
+    () =>
+      assignments.filter(
+        (assignment) =>
+          !assignment.is_completed && assignment.id !== inProgressObjectiveAssignment?.id,
+      ),
+    [assignments, inProgressObjectiveAssignment?.id],
+  );
+  const actionableRoleplayAssignments = useMemo(
+    () => roleplayAssignments.filter((assignment) => !assignment.is_completed),
+    [roleplayAssignments],
+  );
+  const visibleObjectiveAssignments = actionableObjectiveAssignments.slice(0, 3);
+  const visibleRoleplayAssignments = actionableRoleplayAssignments.slice(0, 3);
+  const showObjectiveAssignments = assignmentsLoading || Boolean(assignmentError) || visibleObjectiveAssignments.length > 0;
+  const showRoleplayAssignments =
+    roleplayAssignmentsLoading || Boolean(roleplayAssignmentError) || visibleRoleplayAssignments.length > 0;
+  const showAssignedWorkSection = isInstitutionStudent && (showObjectiveAssignments || showRoleplayAssignments);
 
   if (!summary) return <p className="text-sm text-muted-foreground">Loading your dashboard...</p>;
 
@@ -150,14 +165,6 @@ export function StudentDashboardClient() {
                 <Link href="/roleplays">Roleplay Prep</Link>
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">
-              {roleplayProgress?.total_attempts
-                ? `${roleplayProgress.total_attempts} roleplay attempt${roleplayProgress.total_attempts === 1 ? "" : "s"} completed.`
-                : "No roleplay attempts yet."}{" "}
-              <Link href="/roleplays/progress" className="font-medium text-primary underline-offset-4 hover:underline">
-                View details
-              </Link>
-            </p>
           </div>
 
           <Card className="border-primary/30 bg-background/70">
@@ -209,7 +216,7 @@ export function StudentDashboardClient() {
         </SectionBlock>
       )}
 
-      {isInstitutionStudent && hasAssignedWork && (
+      {showAssignedWorkSection && (
         <SectionBlock>
           <div className="mb-4">
             <h3 className="section-title">Assigned work</h3>
@@ -217,110 +224,110 @@ export function StudentDashboardClient() {
           </div>
 
           <div className="space-y-5">
-            <div>
-              <h4 className="mb-3 text-sm font-semibold tracking-wide text-muted-foreground">Assigned objective tests</h4>
-              {assignmentsLoading ? (
-                <p className="text-sm text-muted-foreground">Loading objective assignments...</p>
-              ) : assignmentError ? (
-                <p className="text-sm text-destructive">{assignmentError}</p>
-              ) : assignments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No assigned objective tests.</p>
-              ) : (
-                <div className="space-y-3">
-                  {assignments.map((assignment) => (
-                    <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="font-medium">{assignment.title}</p>
-                        <Badge variant={assignment.is_completed ? "secondary" : "default"}>
-                          {assignment.is_completed ? "Completed" : "Assigned"}
-                        </Badge>
-                      </div>
-                      {assignment.description && <p className="mt-1 text-sm text-muted-foreground">{assignment.description}</p>}
-                      <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                        <span>{assignment.mode.toUpperCase()} · {assignment.question_count} questions</span>
-                        <span>Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}</span>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Button
-                          size="sm"
-                          disabled={startingAssignmentId === assignment.id || (assignment.is_completed && !assignment.in_progress_attempt_id)}
-                          onClick={async () => {
-                            if (!token) return;
-                            if (assignment.in_progress_attempt_id) {
-                              window.location.href = `/practice?attemptId=${assignment.in_progress_attempt_id}`;
-                              return;
-                            }
-                            setStartingAssignmentId(assignment.id);
-                            try {
-                              const response = await postJson<{ attemptId: number }>("/api/quiz/start-assignment", {
-                                assignmentId: assignment.id,
-                              }, {
-                                headers: { Authorization: `Bearer ${token}` },
-                              });
-                              window.location.href = `/practice?attemptId=${response.attemptId}`;
-                            } catch (err) {
-                              setAssignmentError(err instanceof ApiError ? err.message : "Could not open assignment.");
-                            } finally {
-                              setStartingAssignmentId(null);
-                            }
-                          }}
-                        >
-                          {startingAssignmentId === assignment.id
-                            ? "Starting..."
-                            : assignment.in_progress_attempt_id
-                              ? "Resume assignment"
-                              : assignment.is_completed
-                                ? "Completed"
+            {showObjectiveAssignments && (
+              <div>
+                <h4 className="mb-3 text-sm font-semibold tracking-wide text-muted-foreground">Assigned objective tests</h4>
+                {assignmentsLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading objective assignments...</p>
+                ) : assignmentError ? (
+                  <p className="text-sm text-destructive">{assignmentError}</p>
+                ) : (
+                  <div className="space-y-3">
+                    {visibleObjectiveAssignments.map((assignment) => (
+                      <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium">{assignment.title}</p>
+                          <Badge variant="default">Assigned</Badge>
+                        </div>
+                        {assignment.description && <p className="mt-1 text-sm text-muted-foreground">{assignment.description}</p>}
+                        <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                          <span>{assignment.mode.toUpperCase()} · {assignment.question_count} questions</span>
+                          <span>Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}</span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            disabled={startingAssignmentId === assignment.id}
+                            onClick={async () => {
+                              if (!token) return;
+                              if (assignment.in_progress_attempt_id) {
+                                window.location.href = `/practice?attemptId=${assignment.in_progress_attempt_id}`;
+                                return;
+                              }
+                              setStartingAssignmentId(assignment.id);
+                              try {
+                                const response = await postJson<{ attemptId: number }>(
+                                  "/api/quiz/start-assignment",
+                                  {
+                                    assignmentId: assignment.id,
+                                  },
+                                  {
+                                    headers: { Authorization: `Bearer ${token}` },
+                                  },
+                                );
+                                window.location.href = `/practice?attemptId=${response.attemptId}`;
+                              } catch (err) {
+                                setAssignmentError(err instanceof ApiError ? err.message : "Could not open assignment.");
+                              } finally {
+                                setStartingAssignmentId(null);
+                              }
+                            }}
+                          >
+                            {startingAssignmentId === assignment.id
+                              ? "Starting..."
+                              : assignment.in_progress_attempt_id
+                                ? "Resume assignment"
                                 : "Start assignment"}
-                        </Button>
-                        {assignment.latest_attempt_id && (
-                          <Button asChild size="sm" variant="outline">
-                            <Link href={`/results?attemptId=${assignment.latest_attempt_id}`}>View latest result</Link>
                           </Button>
-                        )}
+                          {assignment.latest_attempt_id && (
+                            <Button asChild size="sm" variant="outline">
+                              <Link href={`/results?attemptId=${assignment.latest_attempt_id}`}>View latest result</Link>
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
-            <div>
-              <h4 className="mb-3 text-sm font-semibold tracking-wide text-muted-foreground">Assigned roleplays</h4>
-              {roleplayAssignmentsLoading ? (
-                <p className="text-sm text-muted-foreground">Loading roleplay assignments...</p>
-              ) : roleplayAssignmentError ? (
-                <p className="text-sm text-destructive">{roleplayAssignmentError}</p>
-              ) : roleplayAssignments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No assigned roleplays.</p>
-              ) : (
-                <div className="space-y-3">
-                  {roleplayAssignments.map((assignment) => (
-                    <div key={`roleplay-${assignment.id}`} className="rounded-xl border border-border/70 bg-primary/5 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="font-medium">{assignment.title}</p>
-                        <Badge variant={assignment.is_completed ? "secondary" : "default"}>
-                          {assignment.is_completed ? "Completed" : assignment.assignment_type === "full_roleplay" ? "Full Roleplay Practice" : "MCQ Drill"}
-                        </Badge>
+            {showRoleplayAssignments && (
+              <div>
+                <h4 className="mb-3 text-sm font-semibold tracking-wide text-muted-foreground">Assigned roleplays</h4>
+                {roleplayAssignmentsLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading roleplay assignments...</p>
+                ) : roleplayAssignmentError ? (
+                  <p className="text-sm text-destructive">{roleplayAssignmentError}</p>
+                ) : (
+                  <div className="space-y-3">
+                    {visibleRoleplayAssignments.map((assignment) => (
+                      <div key={`roleplay-${assignment.id}`} className="rounded-xl border border-border/70 bg-primary/5 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium">{assignment.title}</p>
+                          <Badge variant="default">
+                            {assignment.assignment_type === "full_roleplay" ? "Full Roleplay Practice" : "MCQ Drill"}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {assignment.roleplay?.business_name} · {assignment.roleplay?.event}
+                        </p>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}
+                        </div>
+                        <div className="mt-3">
+                          <Button asChild size="sm">
+                            <Link href={`/roleplays/${assignment.roleplay_id}?roleplayAssignmentId=${assignment.id}`}>
+                              {assignment.assignment_type === "full_roleplay" ? "Open full roleplay" : "Start MCQ drill"}
+                            </Link>
+                          </Button>
+                        </div>
                       </div>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {assignment.roleplay?.business_name} · {assignment.roleplay?.event}
-                      </p>
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}
-                      </div>
-                      <div className="mt-3">
-                        <Button asChild size="sm" variant={assignment.is_completed ? "outline" : "default"}>
-                          <Link href={`/roleplays/${assignment.roleplay_id}?roleplayAssignmentId=${assignment.id}`}>
-                            {assignment.is_completed ? "Review roleplay" : assignment.assignment_type === "full_roleplay" ? "Open full roleplay" : "Start MCQ drill"}
-                          </Link>
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </SectionBlock>
       )}
