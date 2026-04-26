@@ -87,6 +87,10 @@ type RoleplayPracticeSummary = {
 export function StudentDashboardClient() {
   const { data: session } = useSession();
   const token = session?.user?.backendToken;
+  const accountType = session?.user?.account_type;
+  const isIndividualLearner =
+    accountType === "individual" || (!accountType && !session?.user?.institution_id);
+  const isInstitutionStudent = !isIndividualLearner;
   const [summary, setSummary] = useState<Summary | null>(null);
   const [focusAreas, setFocusAreas] = useState<FocusArea[]>([]);
   const [assignments, setAssignments] = useState<LearnerAssignment[]>([]);
@@ -96,6 +100,8 @@ export function StudentDashboardClient() {
   const [startingAssignmentId, setStartingAssignmentId] = useState<number | null>(null);
   const [roleplayProgress, setRoleplayProgress] = useState<RoleplayPracticeSummary | null>(null);
   const [roleplayProgressError, setRoleplayProgressError] = useState<string | null>(null);
+  const [roleplayAssignmentsLoading, setRoleplayAssignmentsLoading] = useState(true);
+  const [roleplayAssignmentError, setRoleplayAssignmentError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -128,12 +134,20 @@ export function StudentDashboardClient() {
       })
       .finally(() => setAssignmentsLoading(false));
 
+    setRoleplayAssignmentsLoading(true);
     getJson<LearnerRoleplayAssignment[]>("/api/user/roleplay-assignments", {
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
     })
-      .then((rows) => setRoleplayAssignments(rows ?? []))
-      .catch(() => setRoleplayAssignments([]));
+      .then((rows) => {
+        setRoleplayAssignments(rows ?? []);
+        setRoleplayAssignmentError(null);
+      })
+      .catch((err) => {
+        setRoleplayAssignments([]);
+        setRoleplayAssignmentError(err instanceof ApiError ? err.message : "Could not load roleplay assignments.");
+      })
+      .finally(() => setRoleplayAssignmentsLoading(false));
 
     getJson<RoleplayPracticeSummary>("/api/user/roleplay-practice-summary", {
       headers: { Authorization: `Bearer ${token}` },
@@ -154,7 +168,7 @@ export function StudentDashboardClient() {
     return Math.round(summary.recent_scores.reduce((a, b) => a + b, 0) / summary.recent_scores.length);
   }, [summary]);
 
-  if (!summary) return null;
+  if (!summary) return <p className="text-sm text-muted-foreground">Loading your dashboard...</p>;
 
   return (
     <div className="space-y-6">
@@ -203,10 +217,176 @@ export function StudentDashboardClient() {
       </section>
 
       <SectionBlock>
+        <div className="mb-4">
+          <h3 className="section-title">Choose your prep track</h3>
+          <p className="section-subtitle">Use one focused action for Objective Test Prep or Roleplay Prep.</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Card className="border-border/70">
+            <CardHeader className="pb-3">
+              <Badge className="w-fit bg-primary/10 text-primary hover:bg-primary/10">Objective Test Prep</Badge>
+              <CardTitle className="text-lg">Build objective test speed and accuracy</CardTitle>
+              <CardDescription>
+                {summary.recent_scores.length > 0 ? `Recent average: ${recentAverage}%` : "Start with a short set to establish your baseline."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild>
+                <Link href="/start-quiz">Start Objective Test Prep</Link>
+              </Button>
+            </CardContent>
+          </Card>
+          <Card className="border-border/70">
+            <CardHeader className="pb-3">
+              <Badge className="w-fit" variant="secondary">Roleplay Prep</Badge>
+              <CardTitle className="text-lg">Practice decision-making and presentation flow</CardTitle>
+              <CardDescription>
+                {roleplayProgress?.total_attempts ? `${roleplayProgress.total_attempts} attempts completed` : "Explore roleplays and start your first scenario."}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild variant="outline">
+                <Link href="/roleplays">Explore Roleplay Prep</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </SectionBlock>
+
+      {isIndividualLearner && (
+        <SectionBlock>
+          <div className="mb-4">
+            <h3 className="section-title">Your next steps</h3>
+            <p className="section-subtitle">Independent practice tools built for individual learners.</p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <Card className="border-border/70">
+              <CardHeader>
+                <CardTitle className="text-base">Start Objective Test Prep</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Button asChild size="sm"><Link href="/start-quiz">Start now</Link></Button>
+              </CardContent>
+            </Card>
+            <Card className="border-border/70">
+              <CardHeader>
+                <CardTitle className="text-base">Explore Roleplay Prep</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Button asChild variant="outline" size="sm"><Link href="/roleplays">Browse roleplays</Link></Button>
+              </CardContent>
+            </Card>
+            <Card className="border-border/70">
+              <CardHeader>
+                <CardTitle className="text-base">View Progress</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Button asChild variant="outline" size="sm"><Link href="/progress">View progress</Link></Button>
+              </CardContent>
+            </Card>
+          </div>
+        </SectionBlock>
+      )}
+
+      <SectionBlock>
         <div className="mb-4 flex items-end justify-between">
           <div>
-            <h3 className="section-title">Roleplay Prep · Roleplay Progress</h3>
-            <p className="section-subtitle">Track your latest roleplay practice performance.</p>
+            <h3 className="section-title">Objective Test Prep</h3>
+            <p className="section-subtitle">
+              {isInstitutionStudent
+                ? "Practice sessions, recent performance, and assigned objective tests."
+                : "Practice sessions and recent performance for independent study."}
+            </p>
+          </div>
+          <Button asChild size="sm">
+            <Link href="/start-quiz">Start Objective Test Prep</Link>
+          </Button>
+        </div>
+        <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <MetricPill label="Recent average" value={`${recentAverage ?? "--"}%`} />
+          <MetricPill label="Quizzes completed" value={summary.quizzes_completed.toString()} />
+          <MetricPill label="Total questions answered" value={summary.total_questions_answered.toString()} />
+        </div>
+        {isInstitutionStudent && (
+          <>
+            {assignmentsLoading ? (
+              <p className="text-sm text-muted-foreground">Loading objective assignments...</p>
+            ) : assignmentError ? (
+              <p className="text-sm text-destructive">{assignmentError}</p>
+            ) : assignments.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No objective test assignments yet. You can still start independent practice.</p>
+            ) : (
+              <div className="space-y-3">
+                {assignments.map((assignment) => (
+                  <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium">{assignment.title}</p>
+                      <Badge variant={assignment.is_completed ? "secondary" : "default"}>
+                        {assignment.is_completed ? "Completed" : "Assigned"}
+                      </Badge>
+                    </div>
+                    {assignment.description && <p className="mt-1 text-sm text-muted-foreground">{assignment.description}</p>}
+                    <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                      <span>{assignment.mode.toUpperCase()} · {assignment.question_count} questions</span>
+                      <span>Shuffle: {assignment.shuffle_questions ? "On" : "Off"}</span>
+                      <span>Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}</span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        disabled={startingAssignmentId === assignment.id || (assignment.is_completed && !assignment.in_progress_attempt_id)}
+                        onClick={async () => {
+                          if (!token) return;
+                          if (assignment.in_progress_attempt_id) {
+                            window.location.href = `/practice?attemptId=${assignment.in_progress_attempt_id}`;
+                            return;
+                          }
+                          setStartingAssignmentId(assignment.id);
+                          try {
+                            const response = await postJson<{ attemptId: number }>("/api/quiz/start-assignment", {
+                              assignmentId: assignment.id,
+                            }, {
+                              headers: { Authorization: `Bearer ${token}` },
+                            });
+                            window.location.href = `/practice?attemptId=${response.attemptId}`;
+                          } catch (err) {
+                            setAssignmentError(err instanceof ApiError ? err.message : "Could not open assignment.");
+                          } finally {
+                            setStartingAssignmentId(null);
+                          }
+                        }}
+                      >
+                        {startingAssignmentId === assignment.id
+                          ? "Starting..."
+                          : assignment.in_progress_attempt_id
+                            ? "Resume assignment"
+                            : assignment.is_completed
+                              ? "Completed"
+                              : "Start assignment"}
+                      </Button>
+                      {assignment.latest_attempt_id && (
+                        <Button asChild size="sm" variant="outline">
+                          <Link href={`/results?attemptId=${assignment.latest_attempt_id}`}>View latest result</Link>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </SectionBlock>
+
+      <SectionBlock>
+        <div className="mb-4 flex items-end justify-between">
+          <div>
+            <h3 className="section-title">Roleplay Prep</h3>
+            <p className="section-subtitle">
+              {isInstitutionStudent
+                ? "Track roleplay progress and continue assigned roleplays."
+                : "Track roleplay progress and explore independent roleplay practice."}
+            </p>
           </div>
           <Button asChild size="sm" variant="outline">
             <Link href="/roleplays/progress">View full progress</Link>
@@ -217,7 +397,7 @@ export function StudentDashboardClient() {
         ) : !roleplayProgress ? (
           <p className="text-sm text-muted-foreground">Loading roleplay progress...</p>
         ) : roleplayProgress.total_attempts === 0 ? (
-          <p className="text-sm text-muted-foreground">You have not completed any roleplay practice yet.</p>
+          <p className="text-sm text-muted-foreground">No roleplay practice completed yet. Explore roleplays to begin your first attempt.</p>
         ) : (
           <div className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -243,130 +423,56 @@ export function StudentDashboardClient() {
             </div>
           </div>
         )}
-      </SectionBlock>
-
-      <SectionBlock>
-        <div className="mb-4 flex items-end justify-between">
-          <div>
-            <h3 className="section-title">Roleplay Prep · Assigned Roleplays</h3>
-            <p className="section-subtitle">MCQ Drill and Full Roleplay Practice assignments from your advisor.</p>
-          </div>
-          <Button asChild size="sm" variant="outline">
-            <Link href="/roleplays">Browse Roleplays</Link>
-          </Button>
-        </div>
-        {assignmentsLoading ? (
-          <p className="text-sm text-muted-foreground">Loading assignments...</p>
-        ) : assignmentError ? (
-          <p className="text-sm text-destructive">{assignmentError}</p>
-        ) : assignments.length === 0 && roleplayAssignments.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No assignments yet. Check back soon.</p>
-        ) : (
-          <div className="space-y-3">
-            {roleplayAssignments.map((assignment) => (
-              <div key={`roleplay-${assignment.id}`} className="rounded-xl border border-border/70 bg-primary/5 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-medium">{assignment.title}</p>
-                  <Badge variant={assignment.is_completed ? "secondary" : "default"}>
-                    {assignment.is_completed ? "Completed" : assignment.assignment_type === "full_roleplay" ? "Full Roleplay Practice" : "MCQ Drill"}
-                  </Badge>
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {assignment.roleplay?.business_name} · {assignment.roleplay?.event} · Advisor: {assignment.advisor ?? "Advisor"}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Type: {assignment.assignment_type === "full_roleplay" ? "Full Roleplay Practice" : `MCQ Drill${assignment.drill_label ? ` · ${assignment.drill_label}` : ""}`}
-                </p>
-                {assignment.instructions && <p className="mt-1 text-sm text-muted-foreground">{assignment.instructions}</p>}
-                <div className="mt-2 text-xs text-muted-foreground">
-                  Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}
-                </div>
-                <div className="mt-3">
-                  <Button asChild size="sm" variant={assignment.is_completed ? "outline" : "default"}>
-                    <Link href={`/roleplays/${assignment.roleplay_id}?roleplayAssignmentId=${assignment.id}`}>
-                      {assignment.is_completed ? "Review Roleplay Prep" : assignment.assignment_type === "full_roleplay" ? "Open Full Roleplay Practice" : "Start MCQ Drill"}
-                    </Link>
-                  </Button>
-                </div>
+        {isInstitutionStudent && (
+          <div className="mt-5 border-t border-border/70 pt-5">
+            <div className="mb-4 flex items-end justify-between">
+              <div>
+                <h4 className="text-sm font-semibold tracking-wide text-muted-foreground">Assigned roleplays</h4>
+                <p className="text-sm text-muted-foreground">MCQ Drill and Full Roleplay Practice assignments.</p>
               </div>
-            ))}
-          </div>
-        )}
-      </SectionBlock>
-
-      <SectionBlock>
-        <div className="mb-4 flex items-end justify-between">
-          <div>
-            <h3 className="section-title">Objective Test Prep · Assigned Objective Tests</h3>
-            <p className="section-subtitle">Objective test assignments from your instructor.</p>
-          </div>
-          <Button asChild size="sm" variant="outline">
-            <Link href="/start-quiz">Start Objective Test Prep</Link>
-          </Button>
-        </div>
-        {assignmentsLoading ? (
-          <p className="text-sm text-muted-foreground">Loading assignments...</p>
-        ) : assignmentError ? (
-          <p className="text-sm text-destructive">{assignmentError}</p>
-        ) : assignments.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No objective test assignments yet.</p>
-        ) : (
-          <div className="space-y-3">
-            {assignments.map((assignment) => (
-              <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-medium">{assignment.title}</p>
-                  <Badge variant={assignment.is_completed ? "secondary" : "default"}>
-                    {assignment.is_completed ? "Completed" : "Assigned"}
-                  </Badge>
+              <Button asChild size="sm" variant="outline">
+                <Link href="/roleplays">Browse Roleplays</Link>
+              </Button>
+            </div>
+            <>
+              {roleplayAssignmentsLoading ? (
+                <p className="text-sm text-muted-foreground">Loading roleplay assignments...</p>
+              ) : roleplayAssignmentError ? (
+                <p className="text-sm text-destructive">{roleplayAssignmentError}</p>
+              ) : roleplayAssignments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No roleplay assignments yet. You can still browse roleplays.</p>
+              ) : (
+                <div className="space-y-3">
+                  {roleplayAssignments.map((assignment) => (
+                    <div key={`roleplay-${assignment.id}`} className="rounded-xl border border-border/70 bg-primary/5 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-medium">{assignment.title}</p>
+                        <Badge variant={assignment.is_completed ? "secondary" : "default"}>
+                          {assignment.is_completed ? "Completed" : assignment.assignment_type === "full_roleplay" ? "Full Roleplay Practice" : "MCQ Drill"}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {assignment.roleplay?.business_name} · {assignment.roleplay?.event} · Advisor: {assignment.advisor ?? "Advisor"}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Type: {assignment.assignment_type === "full_roleplay" ? "Full Roleplay Practice" : `MCQ Drill${assignment.drill_label ? ` · ${assignment.drill_label}` : ""}`}
+                      </p>
+                      {assignment.instructions && <p className="mt-1 text-sm text-muted-foreground">{assignment.instructions}</p>}
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}
+                      </div>
+                      <div className="mt-3">
+                        <Button asChild size="sm" variant={assignment.is_completed ? "outline" : "default"}>
+                          <Link href={`/roleplays/${assignment.roleplay_id}?roleplayAssignmentId=${assignment.id}`}>
+                            {assignment.is_completed ? "Review Roleplay Prep" : assignment.assignment_type === "full_roleplay" ? "Open Full Roleplay Practice" : "Start MCQ Drill"}
+                          </Link>
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                {assignment.description && <p className="mt-1 text-sm text-muted-foreground">{assignment.description}</p>}
-                <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                  <span>{assignment.mode.toUpperCase()} · {assignment.question_count} questions</span>
-                  <span>Shuffle: {assignment.shuffle_questions ? "On" : "Off"}</span>
-                  <span>Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}</span>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    disabled={startingAssignmentId === assignment.id || (assignment.is_completed && !assignment.in_progress_attempt_id)}
-                    onClick={async () => {
-                      if (!token) return;
-                      if (assignment.in_progress_attempt_id) {
-                        window.location.href = `/practice?attemptId=${assignment.in_progress_attempt_id}`;
-                        return;
-                      }
-                      setStartingAssignmentId(assignment.id);
-                      try {
-                        const response = await postJson<{ attemptId: number }>("/api/quiz/start-assignment", {
-                          assignmentId: assignment.id,
-                        }, {
-                          headers: { Authorization: `Bearer ${token}` },
-                        });
-                        window.location.href = `/practice?attemptId=${response.attemptId}`;
-                      } catch (err) {
-                        setAssignmentError(err instanceof ApiError ? err.message : "Could not open assignment.");
-                      } finally {
-                        setStartingAssignmentId(null);
-                      }
-                    }}
-                  >
-                    {startingAssignmentId === assignment.id
-                      ? "Starting..."
-                      : assignment.in_progress_attempt_id
-                        ? "Resume assignment"
-                        : assignment.is_completed
-                          ? "Completed"
-                          : "Start assignment"}
-                  </Button>
-                  {assignment.latest_attempt_id && (
-                    <Button asChild size="sm" variant="outline">
-                      <Link href={`/results?attemptId=${assignment.latest_attempt_id}`}>View latest result</Link>
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))}
+              )}
+            </>
           </div>
         )}
       </SectionBlock>
