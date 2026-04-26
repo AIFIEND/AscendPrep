@@ -1490,6 +1490,81 @@ def list_assignments(current_user):
     return jsonify(payload), 200
 
 
+@app.route('/api/admin/assignments/<int:assignment_id>', methods=['GET'])
+@institution_admin_required
+def get_admin_assignment(current_user, assignment_id):
+    assignment = Assignment.query.get(assignment_id)
+    if not assignment or not assignment.is_active:
+        return _json_error("Assignment not found.", 404, "assignment_not_found")
+    if not current_user.is_superadmin and assignment.institution_id != current_user.institution_id:
+        return _json_error("Forbidden", 403, "forbidden")
+
+    recipients = (
+        db.session.query(AssignmentRecipient, User)
+        .join(User, User.id == AssignmentRecipient.user_id)
+        .filter(AssignmentRecipient.assignment_id == assignment.id)
+        .order_by(User.username.asc())
+        .all()
+    )
+    recipient_ids = [recipient.user_id for recipient, _student in recipients]
+
+    attempts = QuizAttempt.query.filter(
+        QuizAttempt.assignment_id == assignment.id,
+        QuizAttempt.user_id.in_(recipient_ids) if recipient_ids else False
+    ).all()
+    attempts_by_user: dict[int, list[QuizAttempt]] = {}
+    for attempt in attempts:
+        attempts_by_user.setdefault(attempt.user_id, []).append(attempt)
+
+    student_rows = []
+    completed_scores = []
+    completed_count = 0
+    for _recipient, student in recipients:
+        user_attempts = sorted(attempts_by_user.get(student.id, []), key=lambda a: a.timestamp or datetime.min, reverse=True)
+        latest_attempt = user_attempts[0] if user_attempts else None
+        latest_completed_attempt = next((a for a in user_attempts if a.is_complete), None)
+        if latest_completed_attempt:
+            completed_count += 1
+            if latest_completed_attempt.score is not None:
+                completed_scores.append(latest_completed_attempt.score)
+            status = "Completed"
+        elif latest_attempt:
+            status = "In progress"
+        else:
+            status = "Not started"
+
+        student_rows.append({
+            "user_id": student.id,
+            "username": student.username,
+            "status": status,
+            "latest_attempt_id": latest_completed_attempt.id if latest_completed_attempt else None,
+            "score": latest_completed_attempt.score if latest_completed_attempt else None,
+            "completed_at": latest_completed_attempt.timestamp.isoformat() if latest_completed_attempt and latest_completed_attempt.timestamp else None,
+        })
+
+    assigned_count = len(recipients)
+    missing_count = max(assigned_count - completed_count, 0)
+    completion_rate = round((completed_count / assigned_count) * 100, 1) if assigned_count else 0.0
+    average_score = round(sum(completed_scores) / len(completed_scores), 1) if completed_scores else None
+
+    return jsonify({
+        "id": assignment.id,
+        "title": assignment.title,
+        "description": assignment.description,
+        "mode": assignment.mode,
+        "question_count": assignment.question_count,
+        "categories": assignment.categories or [],
+        "difficulties": assignment.difficulties or [],
+        "due_date": assignment.due_date.isoformat() if assignment.due_date else None,
+        "assigned_count": assigned_count,
+        "completed_count": completed_count,
+        "missing_count": missing_count,
+        "completion_rate": completion_rate,
+        "average_score": average_score,
+        "students": student_rows,
+    }), 200
+
+
 @app.route('/api/user/assignments', methods=['GET'])
 @token_required
 def list_user_assignments(current_user):
@@ -1883,9 +1958,25 @@ def submit_quiz(current_user):
 @app.route('/api/quiz/attempt/<int:attempt_id>/results', methods=['GET'])
 @token_required
 def get_attempt_results(current_user, attempt_id):
-    attempt = QuizAttempt.query.filter_by(id=attempt_id, user_id=current_user.id).first()
+    attempt = QuizAttempt.query.get(attempt_id)
     if not attempt:
         return jsonify({'message': 'Attempt not found'}), 404
+    if current_user.is_superadmin:
+        pass
+    elif attempt.user_id == current_user.id:
+        pass
+    elif current_user.is_admin:
+        attempt_user = User.query.get(attempt.user_id)
+        if not attempt_user or not current_user.institution_id or attempt_user.institution_id != current_user.institution_id:
+            return _json_error("Forbidden", 403, "forbidden")
+        if attempt.assignment_id:
+            assignment = Assignment.query.get(attempt.assignment_id)
+            if not assignment or assignment.institution_id != current_user.institution_id:
+                return _json_error("Forbidden", 403, "forbidden")
+        else:
+            return _json_error("Forbidden", 403, "forbidden")
+    else:
+        return _json_error("Forbidden", 403, "forbidden")
 
     questions = Question.query.filter(Question.id.in_(attempt.question_ids)).all()
     id_to_q = {q.id: q for q in questions}
@@ -2697,11 +2788,63 @@ def get_admin_roleplay_assignment(current_user, assignment_id):
         return _json_error("Roleplay assignment not found.", 404, "roleplay_assignment_not_found")
     if not current_user.is_superadmin and assignment.institution_id != current_user.institution_id:
         return _json_error("Forbidden", 403, "forbidden")
-    recipients = RoleplayAssignmentRecipient.query.filter_by(roleplay_assignment_id=assignment.id).all()
+    recipients = (
+        db.session.query(RoleplayAssignmentRecipient, User)
+        .join(User, User.id == RoleplayAssignmentRecipient.user_id)
+        .filter(RoleplayAssignmentRecipient.roleplay_assignment_id == assignment.id)
+        .order_by(User.username.asc())
+        .all()
+    )
+    recipient_ids = [recipient.user_id for recipient, _student in recipients]
+    attempts = RoleplayPracticeAttempt.query.filter(
+        RoleplayPracticeAttempt.roleplay_assignment_id == assignment.id,
+        RoleplayPracticeAttempt.user_id.in_(recipient_ids) if recipient_ids else False
+    ).all()
+    attempts_by_user: dict[int, list[RoleplayPracticeAttempt]] = {}
+    for attempt in attempts:
+        attempts_by_user.setdefault(attempt.user_id, []).append(attempt)
+
+    student_rows = []
+    completed_count = 0
+    for recipient, student in recipients:
+        user_attempts = sorted(
+            attempts_by_user.get(student.id, []),
+            key=lambda a: a.completed_at or datetime.min,
+            reverse=True,
+        )
+        latest_attempt = user_attempts[0] if user_attempts else None
+        is_completed = bool(recipient.completed_at) or bool(latest_attempt)
+        if is_completed:
+            completed_count += 1
+        student_rows.append({
+            "user_id": student.id,
+            "username": student.username,
+            "status": "Completed" if is_completed else "Not started",
+            "score": latest_attempt.score if latest_attempt and assignment.assignment_type != "full_roleplay" else None,
+            "total_questions": latest_attempt.total_questions if latest_attempt and assignment.assignment_type != "full_roleplay" else None,
+            "score_percent": (
+                round((latest_attempt.score / latest_attempt.total_questions) * 100, 1)
+                if latest_attempt and assignment.assignment_type != "full_roleplay" and latest_attempt.total_questions > 0
+                else None
+            ),
+            "completed_at": (
+                recipient.completed_at.isoformat()
+                if recipient.completed_at
+                else latest_attempt.completed_at.isoformat() if latest_attempt and latest_attempt.completed_at else None
+            ),
+            "roleplay_id": assignment.roleplay_id,
+        })
+
+    assigned_count = len(recipients)
+    missing_count = max(assigned_count - completed_count, 0)
+    completion_rate = round((completed_count / assigned_count) * 100, 1) if assigned_count else 0.0
     return jsonify({
         **_serialize_roleplay_assignment(assignment),
-        "assigned_count": len(recipients),
-        "completed_count": len([r for r in recipients if r.completed_at]),
+        "assigned_count": assigned_count,
+        "completed_count": completed_count,
+        "missing_count": missing_count,
+        "completion_rate": completion_rate,
+        "students": student_rows,
     }), 200
 
 
