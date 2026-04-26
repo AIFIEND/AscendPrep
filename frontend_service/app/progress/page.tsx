@@ -1,17 +1,12 @@
-// app/progress/page.tsx
-// NEW FILE: Server component to fetch and display the user's progress page.
-
 import { getServerSession } from "next-auth/next";
+import Link from "next/link";
 import { authOptions } from "@/lib/auth-options";
 import { ProgressClient } from "./_components/progress-client";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import Link from "next/link";
 import { AuthRequiredState } from "@/components/auth-required-state";
-import { getJson } from '@/lib/api';
+import { ApiError, getJson } from "@/lib/api";
 
-
-// Types for the data from our /api/user/progress endpoint (list shape expected by ProgressClient)
 type ProgressRecord = {
   timestamp: string;
   test_name: string;
@@ -29,11 +24,9 @@ export type ProgressData = {
   overall_performance: Record<string, OverallPerformance>;
 };
 
-
-async function getProgressData(session: any): Promise<ProgressData | null> {
+async function getProgressData(session: any): Promise<{ data: ProgressData | null; error: string | null }> {
   if (!session?.user?.backendToken) {
-    console.log("No session or backend token found.");
-    return null;
+    return { data: null, error: "You need to be logged in to view progress." };
   }
 
   try {
@@ -42,22 +35,20 @@ async function getProgressData(session: any): Promise<ProgressData | null> {
       cache: "no-store",
     });
 
-    // Optional: sort by time ascending so charts are stable
-    const sorted = [...(raw.progress_data || [])].sort((a, b) =>
-      a.timestamp.localeCompare(b.timestamp)
-    );
+    const sorted = [...(raw.progress_data || [])].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
     return {
-      progress_data: sorted,
-      overall_performance: raw.overall_performance || {},
+      data: {
+        progress_data: sorted,
+        overall_performance: raw.overall_performance || {},
+      },
+      error: null,
     };
   } catch (error) {
-    console.error("Could not fetch progress data:", error);
-    return null;
+    const message = error instanceof ApiError ? error.message : "Could not load objective progress.";
+    return { data: null, error: message };
   }
 }
-
-
 
 export default async function ProgressPage() {
   const session = await getServerSession(authOptions);
@@ -66,24 +57,29 @@ export default async function ProgressPage() {
     return <AuthRequiredState description="You need to be logged in to view your progress." />;
   }
 
-  const progressData = await getProgressData(session);
+  const { data, error } = await getProgressData(session);
 
   return (
     <div className="container mx-auto p-4">
-      <h1 className="text-3xl font-bold mb-6">My Progress</h1>
-      {progressData ? (
-  <ProgressClient data={progressData} />
+      <h1 className="mb-2 text-3xl font-bold">Objective Test Progress</h1>
+      <p className="mb-6 text-sm text-muted-foreground">Track objective-test performance trends and category mastery over time.</p>
 
+      {data && data.progress_data.length > 0 ? (
+        <ProgressClient data={data} />
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle>No Data Yet</CardTitle>
+            <CardTitle>{error ? "Progress unavailable" : "No objective practice data yet"}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <p>Could not load your progress data. Complete a quiz first, or retry.</p>
-            <div className="flex flex-col sm:flex-row gap-2">
+            <p className="text-sm text-muted-foreground">
+              {error
+                ? error
+                : "Your objective-test charts and category mastery will appear here after you complete at least one practice session."}
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Button asChild>
-                <Link href="/start-quiz">Start Quiz</Link>
+                <Link href="/start-quiz">Start objective practice</Link>
               </Button>
               <Button asChild variant="outline">
                 <Link href="/progress">Retry</Link>

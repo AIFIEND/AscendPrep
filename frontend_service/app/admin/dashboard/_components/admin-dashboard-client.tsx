@@ -905,65 +905,55 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
           <Card className="border-border/70">
             <CardHeader>
               <CardTitle>Assignment tracking</CardTitle>
-              <CardDescription>Assignment specs and completion metrics.</CardDescription>
+              <CardDescription>Unified view of objective and roleplay assignments.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {assignments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No objective test assignments to track yet. Create one above to start tracking completion.</p>
+            <CardContent>
+              {assignments.length === 0 && roleplayAssignments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No assignments to track yet. Create an objective or roleplay assignment above.</p>
               ) : (
-                assignments.map((assignment) => (
-                  <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-3 text-sm space-y-1">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-medium">{assignment.title}</span>
-                      <span>{assignment.completed_count}/{assignment.assigned_count} completed</span>
-                    </div>
-                    {assignment.description && <p className="text-muted-foreground">{assignment.description}</p>}
-                    <p className="text-muted-foreground">
-                      {assignment.mode.toUpperCase()} · {assignment.question_count} questions · Due {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}
-                    </p>
-                    <p className="text-muted-foreground">
-                      Audience: {assignment.assign_to_all ? "All learners" : "Selected learners"} · Time limit: {assignment.time_limit_minutes ? `${assignment.time_limit_minutes} min` : "None"}
-                    </p>
-                    <p className="text-muted-foreground">
-                      Categories: {assignment.categories.length ? assignment.categories.join(", ") : "Any"} · Difficulties: {assignment.difficulties.length ? assignment.difficulties.join(", ") : "Any"}
-                    </p>
-                    <p className="text-muted-foreground">
-                      Avg score: {assignment.average_score == null ? "—" : `${assignment.average_score.toFixed(1)}%`} · Shuffle: {assignment.shuffle_questions ? "On" : "Off"} · Explanations: {assignment.show_explanations ? "On" : "Off"}
-                      {assignment.minimum_passing_score ? ` · Passing target: ${assignment.minimum_passing_score}%` : ""}
-                    </p>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/70">
-            <CardHeader>
-              <CardTitle>Roleplay assignment tracking</CardTitle>
-              <CardDescription>Track assigned MCQ Drill and Full Roleplay Practice work.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {roleplayAssignments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No roleplay assignments to track yet. Create one above to start monitoring roleplay completion.</p>
-              ) : (
-                roleplayAssignments.map((assignment) => (
-                  <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-3 text-sm space-y-1">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-medium">{assignment.title}</span>
-                      <span>{assignment.completed_count}/{assignment.assigned_count} completed</span>
-                    </div>
-                    <p className="text-muted-foreground">
-                      {assignment.roleplay?.business_name ?? `Roleplay #${assignment.roleplay_id}`} · {assignment.roleplay?.event ?? "Event not available"}
-                    </p>
-                    <p className="text-muted-foreground">
-                      Type: {assignment.assignment_type === "mcq_drill" ? "MCQ Drill" : "Full Roleplay Practice"}
-                      {assignment.assignment_type === "mcq_drill" && assignment.drill_label ? ` · ${assignment.drill_label}` : ""}
-                    </p>
-                    <p className="text-muted-foreground">
-                      Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"} · Advisor: {assignment.advisor ?? "Advisor"}
-                    </p>
-                  </div>
-                ))
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Due date</TableHead>
+                      <TableHead>Completion</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {assignments.map((assignment) => {
+                      const isOverdue = assignment.due_date ? new Date(assignment.due_date).getTime() < Date.now() && assignment.completed_count < assignment.assigned_count : false;
+                      const status = assignment.completed_count >= assignment.assigned_count && assignment.assigned_count > 0 ? "Completed" : isOverdue ? "Overdue" : "Active";
+                      return (
+                        <TableRow key={`objective-${assignment.id}`}>
+                          <TableCell className="font-medium">{assignment.title}</TableCell>
+                          <TableCell>Objective Test</TableCell>
+                          <TableCell>{assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}</TableCell>
+                          <TableCell>{assignment.completed_count}/{assignment.assigned_count}</TableCell>
+                          <TableCell><Badge variant={status === "Completed" ? "secondary" : status === "Overdue" ? "destructive" : "default"}>{status}</Badge></TableCell>
+                          <TableCell className="text-right"><Button size="sm" variant="outline">Manage</Button></TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {roleplayAssignments.map((assignment) => {
+                      const isOverdue = assignment.due_date ? new Date(assignment.due_date).getTime() < Date.now() && assignment.completed_count < assignment.assigned_count : false;
+                      const status = assignment.completed_count >= assignment.assigned_count && assignment.assigned_count > 0 ? "Completed" : isOverdue ? "Overdue" : "Active";
+                      const typeLabel = assignment.assignment_type === "full_roleplay" ? "Full Roleplay Practice" : "Roleplay MCQ Drill";
+                      return (
+                        <TableRow key={`roleplay-${assignment.id}`}>
+                          <TableCell className="font-medium">{assignment.title}</TableCell>
+                          <TableCell>{typeLabel}</TableCell>
+                          <TableCell>{assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}</TableCell>
+                          <TableCell>{assignment.completed_count}/{assignment.assigned_count}</TableCell>
+                          <TableCell><Badge variant={status === "Completed" ? "secondary" : status === "Overdue" ? "destructive" : "default"}>{status}</Badge></TableCell>
+                          <TableCell className="text-right"><Button size="sm" variant="outline">Manage</Button></TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
               )}
             </CardContent>
           </Card>

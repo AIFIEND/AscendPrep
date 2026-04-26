@@ -35,10 +35,10 @@ export default function RoleplaysProgressPage() {
 
   return (
     <PageShell>
-      <PageHeader eyebrow="Roleplay Practice" title="Roleplay Progress" description="Review your roleplay practice attempts, weak skills, and recent activity." />
-      {error ? <SectionBlock><p className="text-sm text-destructive">{error}</p></SectionBlock> : !summary ? <SectionBlock><p className="text-sm text-muted-foreground">Loading roleplay progress...</p></SectionBlock> : summary.total_attempts === 0 ? (
+      <PageHeader eyebrow="Roleplay Practice" title="Roleplay Progress" description="Track roleplay-specific practice attempts, weak skills, and recent activity." />
+      {error ? <SectionBlock><p className="text-sm text-destructive">Could not load roleplay progress: {error}</p><Button asChild className="mt-3" variant="outline"><Link href="/roleplays/progress">Retry</Link></Button></SectionBlock> : !summary ? <SectionBlock><p className="text-sm text-muted-foreground">Loading roleplay progress...</p></SectionBlock> : summary.total_attempts === 0 ? (
         <SectionBlock>
-          <p className="text-sm text-muted-foreground">You have not completed any roleplay practice yet.</p>
+          <p className="text-sm text-muted-foreground">You have not completed roleplay practice yet. Roleplay skill and attempt analytics will appear here after your first drill.</p>
           <Button asChild className="mt-3"><Link href="/roleplays">Browse Roleplays</Link></Button>
         </SectionBlock>
       ) : (
