@@ -292,7 +292,11 @@ export function StudentDashboardClient() {
         <div className="mb-4 flex items-end justify-between">
           <div>
             <h3 className="section-title">Objective Test Prep</h3>
-            <p className="section-subtitle">Practice sessions, recent performance, and assigned objective tests.</p>
+            <p className="section-subtitle">
+              {isInstitutionStudent
+                ? "Practice sessions, recent performance, and assigned objective tests."
+                : "Practice sessions and recent performance for independent study."}
+            </p>
           </div>
           <Button asChild size="sm">
             <Link href="/start-quiz">Start Objective Test Prep</Link>
@@ -378,7 +382,11 @@ export function StudentDashboardClient() {
         <div className="mb-4 flex items-end justify-between">
           <div>
             <h3 className="section-title">Roleplay Prep</h3>
-            <p className="section-subtitle">Track roleplay progress and continue assigned roleplays.</p>
+            <p className="section-subtitle">
+              {isInstitutionStudent
+                ? "Track roleplay progress and continue assigned roleplays."
+                : "Track roleplay progress and explore independent roleplay practice."}
+            </p>
           </div>
           <Button asChild size="sm" variant="outline">
             <Link href="/roleplays/progress">View full progress</Link>
@@ -415,17 +423,17 @@ export function StudentDashboardClient() {
             </div>
           </div>
         )}
-        <div className="mt-5 border-t border-border/70 pt-5">
-          <div className="mb-4 flex items-end justify-between">
-            <div>
-              <h4 className="text-sm font-semibold tracking-wide text-muted-foreground">Assigned roleplays</h4>
-              <p className="text-sm text-muted-foreground">MCQ Drill and Full Roleplay Practice assignments.</p>
+        {isInstitutionStudent && (
+          <div className="mt-5 border-t border-border/70 pt-5">
+            <div className="mb-4 flex items-end justify-between">
+              <div>
+                <h4 className="text-sm font-semibold tracking-wide text-muted-foreground">Assigned roleplays</h4>
+                <p className="text-sm text-muted-foreground">MCQ Drill and Full Roleplay Practice assignments.</p>
+              </div>
+              <Button asChild size="sm" variant="outline">
+                <Link href="/roleplays">Browse Roleplays</Link>
+              </Button>
             </div>
-            <Button asChild size="sm" variant="outline">
-              <Link href="/roleplays">Browse Roleplays</Link>
-            </Button>
-          </div>
-          {isInstitutionStudent && (
             <>
               {roleplayAssignmentsLoading ? (
                 <p className="text-sm text-muted-foreground">Loading roleplay assignments...</p>
@@ -465,8 +473,8 @@ export function StudentDashboardClient() {
                 </div>
               )}
             </>
-          )}
-        </div>
+          </div>
+        )}
       </SectionBlock>
 
       <section className="grid gap-6 lg:grid-cols-[1.25fr_1fr]">
