@@ -119,8 +119,12 @@ export function StudentDashboardClient() {
     [assignments],
   );
   const actionableObjectiveAssignments = useMemo(
-    () => assignments.filter((assignment) => !assignment.is_completed || Boolean(assignment.in_progress_attempt_id)),
-    [assignments],
+    () =>
+      assignments.filter(
+        (assignment) =>
+          !assignment.is_completed && assignment.id !== inProgressObjectiveAssignment?.id,
+      ),
+    [assignments, inProgressObjectiveAssignment?.id],
   );
   const actionableRoleplayAssignments = useMemo(
     () => roleplayAssignments.filter((assignment) => !assignment.is_completed),
