@@ -470,8 +470,8 @@ export default function RoleplayDetailPage() {
                 ) : (
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     <p>Attempts: <span className="font-medium">{practiceSummary.attempts}</span></p>
-                    <p>Latest Score: <span className="font-medium">{practiceSummary.latest_attempt.score_percent ?? "—"}%</span></p>
-                    <p>Best Score: <span className="font-medium">{practiceSummary.best_score_percent ?? "—"}%</span></p>
+                    <p>Latest Score: <span className="font-medium">{practiceSummary.latest_attempt.score_percent == null ? "—" : `${practiceSummary.latest_attempt.score_percent}%`}</span></p>
+                    <p>Best Score: <span className="font-medium">{practiceSummary.best_score_percent == null ? "—" : `${practiceSummary.best_score_percent}%`}</span></p>
                     <p>Last Practiced: <span className="font-medium">{practiceSummary.latest_attempt.completed_at ? new Date(practiceSummary.latest_attempt.completed_at).toLocaleString() : "—"}</span></p>
                   </div>
                 )}
