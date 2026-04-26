@@ -2633,6 +2633,12 @@ def create_roleplay_assignment(current_user):
         return _json_error("No eligible learners selected.", 400, "no_recipients")
 
     selected_students = User.query.filter(User.id.in_(selected_user_ids)).all()
+    if any(student.institution_id is None for student in selected_students):
+        return _json_error(
+            "All roleplay assignment recipients must belong to an institution.",
+            400,
+            "invalid_selected_users",
+        )
     assignment_institution_ids = {student.institution_id for student in selected_students}
     if len(assignment_institution_ids) != 1:
         return _json_error("All student_ids must belong to the same institution.", 400, "invalid_selected_users")
