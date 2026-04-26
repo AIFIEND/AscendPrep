@@ -70,6 +70,33 @@ type QuizConfig = {
   difficulties: string[];
 };
 
+type AdminRoleplayPracticeSummary = {
+  total_students: number;
+  students_with_attempts: number;
+  students_without_attempts: number;
+  total_attempts: number;
+  average_score_percent: number | null;
+  recent_activity: Array<{
+    attempt_id: number;
+    student_id: number;
+    student_name: string;
+    roleplay_id: number;
+    business_name: string | null;
+    event: string | null;
+    score_percent: number | null;
+    completed_at: string | null;
+  }>;
+  students: Array<{
+    student_id: number;
+    student_name: string;
+    attempts: number;
+    roleplays_practiced_count: number;
+    average_score_percent: number | null;
+    best_score_percent: number | null;
+    last_practiced_at: string | null;
+  }>;
+};
+
 type AdminDashboardClientProps = {
   view?: "overview" | "students" | "assignments";
 };
@@ -99,6 +126,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [config, setConfig] = useState<QuizConfig>({ categories: [], difficulties: [] });
   const [assignmentForm, setAssignmentForm] = useState(DEFAULT_ASSIGNMENT_FORM);
+  const [roleplaySummary, setRoleplaySummary] = useState<AdminRoleplayPracticeSummary | null>(null);
 
   const token = session?.user?.backendToken;
 
@@ -118,6 +146,14 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
       setAssignments(assignmentResp);
       setConfig(configResp);
       setError(null);
+      try {
+        const roleplayResp = await getJson<AdminRoleplayPracticeSummary>("/api/admin/roleplay-practice-summary", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setRoleplaySummary(roleplayResp);
+      } catch {
+        setRoleplaySummary(null);
+      }
     } catch (e: unknown) {
       const status = e instanceof ApiError ? e.status : undefined;
       if (status === 401 || status === 403) setError("AccessDenied");
@@ -226,7 +262,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
         <CardContent className="flex items-center justify-between p-4">
           <div>
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Average score</p>
-            <p className="text-2xl font-bold">{totals.average_score?.toFixed(1) ?? "—"}%</p>
+            <p className="text-2xl font-bold">{totals.average_score == null ? "—" : `${totals.average_score.toFixed(1)}%`}</p>
           </div>
           <Activity className="h-5 w-5 text-primary" />
         </CardContent>
@@ -269,7 +305,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
               {leaderboardRows.map((row, idx) => (
                 <div key={row.username} className="flex items-center justify-between rounded border p-2 text-sm">
                   <span>#{idx + 1} {row.username}</span>
-                  <span>{row.quizzes_taken} quizzes · {row.average_score?.toFixed(1) ?? "—"}%</span>
+                  <span>{row.quizzes_taken} quizzes · {row.average_score == null ? "—" : `${row.average_score.toFixed(1)}%`}</span>
                 </div>
               ))}
             </CardContent>
@@ -292,6 +328,69 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                   </p>
                 </div>
               ))}
+            </CardContent>
+          </SectionBlock>
+
+          <SectionBlock>
+            <CardHeader>
+              <CardTitle>Roleplay Practice Activity</CardTitle>
+              <CardDescription>Recent roleplay practice completion and learner progress.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!roleplaySummary ? (
+                <p className="text-sm text-muted-foreground">Roleplay activity is unavailable right now.</p>
+              ) : (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded border p-3 text-sm"><p className="text-muted-foreground">Total Attempts</p><p className="text-xl font-semibold">{roleplaySummary.total_attempts}</p></div>
+                    <div className="rounded border p-3 text-sm"><p className="text-muted-foreground">Students With Attempts</p><p className="text-xl font-semibold">{roleplaySummary.students_with_attempts}</p></div>
+                    <div className="rounded border p-3 text-sm"><p className="text-muted-foreground">Students Without Attempts</p><p className="text-xl font-semibold">{roleplaySummary.students_without_attempts}</p></div>
+                    <div className="rounded border p-3 text-sm"><p className="text-muted-foreground">Average Score</p><p className="text-xl font-semibold">{roleplaySummary.average_score_percent == null ? "—" : `${roleplaySummary.average_score_percent.toFixed(1)}%`}</p></div>
+                  </div>
+
+                  <div>
+                    <p className="mb-2 text-sm font-medium">Recent Activity</p>
+                    {roleplaySummary.recent_activity.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No recent roleplay practice activity yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {roleplaySummary.recent_activity.map((item) => (
+                          <div key={item.attempt_id} className="rounded border p-2 text-sm flex items-center justify-between gap-2">
+                            <span>{item.student_name} · {item.business_name ?? `Roleplay #${item.roleplay_id}`}</span>
+                            <span className="text-muted-foreground">{item.score_percent == null ? "—" : `${item.score_percent}%`} {item.completed_at ? `· ${new Date(item.completed_at).toLocaleString()}` : ""}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="mb-2 text-sm font-medium">Student Summary</p>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Student</TableHead>
+                          <TableHead>Attempts</TableHead>
+                          <TableHead>Roleplays</TableHead>
+                          <TableHead>Average Score</TableHead>
+                          <TableHead>Best Score</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {roleplaySummary.students.map((student) => (
+                          <TableRow key={student.student_id}>
+                            <TableCell>{student.student_name}</TableCell>
+                            <TableCell>{student.attempts}</TableCell>
+                            <TableCell>{student.roleplays_practiced_count}</TableCell>
+                            <TableCell>{student.average_score_percent == null ? "—" : `${student.average_score_percent.toFixed(1)}%`}</TableCell>
+                            <TableCell>{student.best_score_percent == null ? "—" : `${student.best_score_percent.toFixed(1)}%`}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
+              )}
             </CardContent>
           </SectionBlock>
 
@@ -360,7 +459,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                     <TableCell>{user.is_admin ? "Institution Admin" : "Student"}</TableCell>
                     <TableCell>{user.is_active ? "Active" : "Deactivated"}</TableCell>
                     <TableCell className="text-right">{user.quizzes_taken}</TableCell>
-                    <TableCell className="text-right">{user.average_score?.toFixed(1) ?? "—"}%</TableCell>
+                    <TableCell className="text-right">{user.average_score == null ? "—" : `${user.average_score.toFixed(1)}%`}</TableCell>
                     <TableCell className="text-right">{user.last_active ? new Date(user.last_active).toLocaleDateString() : "—"}</TableCell>
                     <TableCell className="text-right">
                       {!user.is_admin && (
@@ -619,7 +718,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                     Categories: {assignment.categories.length ? assignment.categories.join(", ") : "Any"} · Difficulties: {assignment.difficulties.length ? assignment.difficulties.join(", ") : "Any"}
                   </p>
                   <p className="text-muted-foreground">
-                    Avg score: {assignment.average_score?.toFixed(1) ?? "—"}% · Shuffle: {assignment.shuffle_questions ? "On" : "Off"} · Explanations: {assignment.show_explanations ? "On" : "Off"}
+                    Avg score: {assignment.average_score == null ? "—" : `${assignment.average_score.toFixed(1)}%`} · Shuffle: {assignment.shuffle_questions ? "On" : "Off"} · Explanations: {assignment.show_explanations ? "On" : "Off"}
                     {assignment.minimum_passing_score ? ` · Passing target: ${assignment.minimum_passing_score}%` : ""}
                   </p>
                 </div>
