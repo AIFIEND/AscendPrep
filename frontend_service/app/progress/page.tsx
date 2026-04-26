@@ -45,7 +45,7 @@ async function getProgressData(session: any): Promise<{ data: ProgressData | nul
       error: null,
     };
   } catch (error) {
-    const message = error instanceof ApiError ? error.message : "Could not load objective progress.";
+    const message = error instanceof ApiError ? error.message : "Could not load exam prep progress.";
     return { data: null, error: message };
   }
 }
@@ -61,25 +61,25 @@ export default async function ProgressPage() {
 
   return (
     <div className="container mx-auto p-4">
-      <h1 className="mb-2 text-3xl font-bold">Objective Test Progress</h1>
-      <p className="mb-6 text-sm text-muted-foreground">Track objective-test performance trends and category mastery over time.</p>
+      <h1 className="mb-2 text-3xl font-bold">Exam Prep Progress</h1>
+      <p className="mb-6 text-sm text-muted-foreground">Track exam prep performance trends and category mastery over time.</p>
 
       {data && data.progress_data.length > 0 ? (
         <ProgressClient data={data} />
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle>{error ? "Progress unavailable" : "No objective practice data yet"}</CardTitle>
+            <CardTitle>{error ? "Progress unavailable" : "No exam practice data yet"}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
               {error
                 ? error
-                : "Your objective-test charts and category mastery will appear here after you complete at least one practice session."}
+                : "Your exam prep charts and category mastery will appear here after you complete at least one practice session."}
             </p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button asChild>
-                <Link href="/start-quiz">Start objective practice</Link>
+                <Link href="/start-quiz">Start exam practice</Link>
               </Button>
               <Button asChild variant="outline">
                 <Link href="/progress">Retry</Link>

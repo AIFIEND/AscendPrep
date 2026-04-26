@@ -140,7 +140,7 @@ export default function ResultsPage() {
         <div className="mx-auto max-w-5xl space-y-6">
           <div>
             <h1 className="text-3xl font-bold">Results</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Review completed attempts or resume in-progress objective practice sessions.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Review completed attempts or resume in-progress exam practice sessions.</p>
           </div>
 
           {orderedAttempts.length === 0 ? (
@@ -149,7 +149,7 @@ export default function ResultsPage() {
                 <CardTitle>No results yet</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">Once you start objective practice, your completed and in-progress sessions will appear here.</p>
+                <p className="text-sm text-muted-foreground">Once you start exam practice, your completed and in-progress sessions will appear here.</p>
                 <Button asChild>
                   <Link href="/start-quiz">Start New Practice</Link>
                 </Button>
@@ -171,7 +171,7 @@ export default function ResultsPage() {
                   <TableBody>
                     {orderedAttempts.map((attempt) => (
                       <TableRow key={attempt.id}>
-                        <TableCell className="font-medium">Objective Practice #{attempt.id}</TableCell>
+                        <TableCell className="font-medium">Exam Practice #{attempt.id}</TableCell>
                         <TableCell>
                           <Badge variant={attempt.is_complete ? "secondary" : "default"}>
                             {attempt.is_complete ? "Completed" : "In Progress"}

@@ -105,7 +105,7 @@ export default function AdminAssignmentDetailPage() {
     <PageShell>
       <PageHeader
         eyebrow="Assignment Tracking"
-        title={detail?.title ?? "Objective assignment detail"}
+        title={detail?.title ?? "Exam prep assignment detail"}
         description="Review completion and scores for each assigned learner."
       />
 

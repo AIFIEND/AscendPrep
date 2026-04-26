@@ -171,13 +171,13 @@ export default function StartQuizPage() {
       <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[1fr_320px]">
         <Card>
           <CardHeader>
-            <CardTitle>Objective Prep</CardTitle>
+            <CardTitle>Exam Prep</CardTitle>
             <CardDescription>Pick a path: start quickly, customize your session, or resume assigned work.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-7">
             {inProgressAssignment && (
               <section className="rounded-xl border border-primary/30 bg-primary/5 p-4">
-                <p className="text-sm font-semibold">Continue assigned objective work</p>
+                <p className="text-sm font-semibold">Continue assigned exam prep</p>
                 <p className="mt-1 text-xs text-muted-foreground">{inProgressAssignment.title}</p>
                 <Button asChild size="sm" className="mt-3">
                   <Link href={`/practice?attemptId=${inProgressAssignment.in_progress_attempt_id}`}>Resume assignment</Link>
