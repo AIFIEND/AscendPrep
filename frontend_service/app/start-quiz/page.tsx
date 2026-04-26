@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -21,6 +22,13 @@ type Config = {
 
 type PracticeMode = "targeted" | "recommended";
 
+type LearnerAssignment = {
+  id: number;
+  title: string;
+  in_progress_attempt_id: number | null;
+  is_completed: boolean;
+};
+
 export default function StartQuizPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -38,6 +46,9 @@ export default function StartQuizPage() {
   const [questionCount, setQuestionCount] = useState(10);
   const requestedMode = searchParams.get("mode");
   const [mode, setMode] = useState<PracticeMode>(requestedMode === "targeted" ? "targeted" : "recommended");
+  const [inProgressAssignment, setInProgressAssignment] = useState<LearnerAssignment | null>(null);
+  const accountType = session?.user?.account_type;
+  const isInstitutionStudent = !(accountType === "individual" || (!accountType && !session?.user?.institution_id));
 
   useEffect(() => {
     if (requestedMode === "targeted" || requestedMode === "recommended") {
@@ -77,6 +88,23 @@ export default function StartQuizPage() {
       })
       .catch(() => setMaxAvailable(0));
   }, [config, mode, selectedCats, selectedDiffs]);
+
+  useEffect(() => {
+    if (!token || !isInstitutionStudent) {
+      setInProgressAssignment(null);
+      return;
+    }
+
+    getJson<LearnerAssignment[]>("/api/user/assignments", {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    })
+      .then((rows) => {
+        const active = (rows ?? []).find((assignment) => !assignment.is_completed && assignment.in_progress_attempt_id);
+        setInProgressAssignment(active ?? null);
+      })
+      .catch(() => setInProgressAssignment(null));
+  }, [isInstitutionStudent, token]);
 
   const questionLabel = useMemo(() => {
     if (mode === "recommended") return `${questionCount} question${questionCount === 1 ? "" : "s"} from your weak areas`;
@@ -143,10 +171,24 @@ export default function StartQuizPage() {
       <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[1fr_320px]">
         <Card>
           <CardHeader>
-            <CardTitle>Choose your practice mode</CardTitle>
-            <CardDescription>Start with one mode, then customize your session settings below.</CardDescription>
+            <CardTitle>Objective Prep</CardTitle>
+            <CardDescription>Pick a path: start quickly, customize your session, or resume assigned work.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-7">
+            {inProgressAssignment && (
+              <section className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+                <p className="text-sm font-semibold">Continue assigned objective work</p>
+                <p className="mt-1 text-xs text-muted-foreground">{inProgressAssignment.title}</p>
+                <Button asChild size="sm" className="mt-3">
+                  <Link href={`/practice?attemptId=${inProgressAssignment.in_progress_attempt_id}`}>Resume assignment</Link>
+                </Button>
+              </section>
+            )}
+
+            <section className="flex flex-wrap items-center gap-3 text-sm">
+              <Link href="/results" className="text-primary underline-offset-4 hover:underline">View results</Link>
+              <Link href="/progress" className="text-primary underline-offset-4 hover:underline">View progress</Link>
+            </section>
             {errorMsg && (
               <Alert variant="destructive">
                 <AlertTitle>Unable to start quiz</AlertTitle>
