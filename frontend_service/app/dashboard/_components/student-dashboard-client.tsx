@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { Award, Flame, Target, TrendingUp, Zap } from "lucide-react";
+import { Flame, Target, TrendingUp, Zap } from "lucide-react";
 import { ApiError, getJson, postJson } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -209,11 +209,10 @@ export function StudentDashboardClient() {
         </div>
       </SectionBlock>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <CompactStat icon={<Flame className="h-4 w-4" />} label="Current streak" value={`${summary.current_streak_days} days`} note={`Best ${summary.best_streak_days} days`} />
         <CompactStat icon={<Target className="h-4 w-4" />} label="Daily goal" value={`${summary.daily_goal.answered_today}/${summary.daily_goal.goal_questions}`} note={summary.daily_goal.is_complete ? "Goal complete" : `${summary.daily_goal.remaining} remaining`} />
         <CompactStat icon={<TrendingUp className="h-4 w-4" />} label="Recent average" value={`${recentAverage ?? "--"}%`} note="Latest attempts" />
-        <CompactStat icon={<Award className="h-4 w-4" />} label="Questions answered" value={summary.total_questions_answered.toString()} note="All time" />
       </section>
 
       <SectionBlock>
@@ -294,27 +293,23 @@ export function StudentDashboardClient() {
             <h3 className="section-title">Objective Test Prep</h3>
             <p className="section-subtitle">
               {isInstitutionStudent
-                ? "Practice sessions, recent performance, and assigned objective tests."
-                : "Practice sessions and recent performance for independent study."}
+                ? "Start now and continue any assigned objective tests."
+                : "Start now to build objective test speed and accuracy."}
             </p>
           </div>
           <Button asChild size="sm">
             <Link href="/start-quiz">Start Objective Test Prep</Link>
           </Button>
         </div>
-        <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mb-4 max-w-xs">
           <MetricPill label="Recent average" value={`${recentAverage ?? "--"}%`} />
-          <MetricPill label="Quizzes completed" value={summary.quizzes_completed.toString()} />
-          <MetricPill label="Total questions answered" value={summary.total_questions_answered.toString()} />
         </div>
-        {isInstitutionStudent && (
+        {isInstitutionStudent && assignments.length > 0 && (
           <>
             {assignmentsLoading ? (
               <p className="text-sm text-muted-foreground">Loading objective assignments...</p>
             ) : assignmentError ? (
               <p className="text-sm text-destructive">{assignmentError}</p>
-            ) : assignments.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No objective test assignments yet. You can still start independent practice.</p>
             ) : (
               <div className="space-y-3">
                 {assignments.map((assignment) => (
@@ -384,46 +379,25 @@ export function StudentDashboardClient() {
             <h3 className="section-title">Roleplay Prep</h3>
             <p className="section-subtitle">
               {isInstitutionStudent
-                ? "Track roleplay progress and continue assigned roleplays."
-                : "Track roleplay progress and explore independent roleplay practice."}
+                ? "Use roleplay practice and continue assigned roleplays."
+                : "Use roleplay practice to improve decision-making and presentation flow."}
             </p>
           </div>
           <Button asChild size="sm" variant="outline">
-            <Link href="/roleplays/progress">View full progress</Link>
+            <Link href="/roleplays">Explore Roleplay Prep</Link>
           </Button>
         </div>
         {roleplayProgressError ? (
           <p className="text-sm text-destructive">{roleplayProgressError}</p>
         ) : !roleplayProgress ? (
           <p className="text-sm text-muted-foreground">Loading roleplay progress...</p>
-        ) : roleplayProgress.total_attempts === 0 ? (
-          <p className="text-sm text-muted-foreground">No roleplay practice completed yet. Explore roleplays to begin your first attempt.</p>
         ) : (
-          <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <MetricPill label="Total Attempts" value={String(roleplayProgress.total_attempts)} />
-              <MetricPill label="Average Score" value={roleplayProgress.average_score_percent == null ? "—" : `${roleplayProgress.average_score_percent}%`} />
-              <MetricPill label="Roleplays Practiced" value={String(roleplayProgress.roleplays_practiced_count)} />
-              <MetricPill
-                label="Weakest Skill"
-                value={roleplayProgress.skill_breakdown[0]?.skill ?? "—"}
-              />
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-medium">Recent Roleplay Practice</p>
-              {roleplayProgress.recent_attempts.slice(0, 3).map((attempt) => (
-                <div key={attempt.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm">
-                  <span>{attempt.business_name ?? `Roleplay #${attempt.roleplay_id}`}</span>
-                  <span className="text-muted-foreground">
-                    {attempt.score_percent == null ? "—" : `${attempt.score_percent}%`}
-                    {attempt.completed_at ? ` · ${new Date(attempt.completed_at).toLocaleString()}` : ""}
-                  </span>
-                </div>
-              ))}
-            </div>
+          <div className="mb-4 grid gap-3 sm:grid-cols-2">
+            <MetricPill label="Total Attempts" value={String(roleplayProgress.total_attempts)} />
+            <MetricPill label="Average Score" value={roleplayProgress.average_score_percent == null ? "—" : `${roleplayProgress.average_score_percent}%`} />
           </div>
         )}
-        {isInstitutionStudent && (
+        {isInstitutionStudent && roleplayAssignments.length > 0 && (
           <div className="mt-5 border-t border-border/70 pt-5">
             <div className="mb-4 flex items-end justify-between">
               <div>
@@ -439,8 +413,6 @@ export function StudentDashboardClient() {
                 <p className="text-sm text-muted-foreground">Loading roleplay assignments...</p>
               ) : roleplayAssignmentError ? (
                 <p className="text-sm text-destructive">{roleplayAssignmentError}</p>
-              ) : roleplayAssignments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No roleplay assignments yet. You can still browse roleplays.</p>
               ) : (
                 <div className="space-y-3">
                   {roleplayAssignments.map((assignment) => (
@@ -475,66 +447,6 @@ export function StudentDashboardClient() {
             </>
           </div>
         )}
-      </SectionBlock>
-
-      <section className="grid gap-6 lg:grid-cols-[1.25fr_1fr]">
-        <SectionBlock>
-          <div className="mb-4">
-            <h3 className="section-title">Recommended focus</h3>
-            <p className="section-subtitle">These are the best categories to practice next.</p>
-          </div>
-          <div className="space-y-2">
-            {focusAreas.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Complete a few quizzes to unlock personalized recommendations.</p>
-            ) : (
-              focusAreas.slice(0, 4).map((item, index) => (
-                <div key={item.category} className="rounded-xl border border-border/70 bg-secondary/35 p-3">
-                  <div className="mb-1 flex items-center justify-between text-sm">
-                    <p className="font-medium">{index + 1}. {item.category}</p>
-                    <Badge variant="secondary">{item.lifetime_accuracy}% mastery</Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground">Trend: {item.trend}. Suggested drill: {item.suggested_question_count} questions.</p>
-                </div>
-              ))
-            )}
-          </div>
-        </SectionBlock>
-
-        <SectionBlock>
-          <h3 className="section-title">Achievements</h3>
-          <p className="section-subtitle mb-4">Milestones from consistency and improvement.</p>
-          <div className="space-y-2">
-            {(summary.badges || []).slice(0, 4).map((badge) => (
-              <div key={badge.key} className="rounded-lg border border-border/70 bg-secondary/35 p-3">
-                <p className="text-sm font-medium">{badge.title}</p>
-                <p className="text-xs text-muted-foreground">{badge.description}</p>
-              </div>
-            ))}
-          </div>
-        </SectionBlock>
-      </section>
-
-      <SectionBlock>
-        <div className="mb-4 flex items-end justify-between">
-          <div>
-            <h3 className="section-title">Topic mastery</h3>
-            <p className="section-subtitle">Raise categories below 70% first.</p>
-          </div>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/progress">View full progress</Link>
-          </Button>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          {(summary.mastery || []).slice(0, 6).map((item) => (
-            <div key={item.category} className="rounded-xl border border-border/70 p-3">
-              <div className="mb-2 flex items-center justify-between text-sm">
-                <span className="font-medium">{item.category}</span>
-                <span className="text-muted-foreground">{item.percent}%</span>
-              </div>
-              <Progress value={item.percent} className="h-2.5" />
-            </div>
-          ))}
-        </div>
       </SectionBlock>
     </div>
   );
