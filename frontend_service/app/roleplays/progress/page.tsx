@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { ApiError, getJson } from "@/lib/api";
 import { PageHeader, PageShell, SectionBlock } from "@/components/ui/page-shell";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -18,11 +19,24 @@ type RoleplayPracticeSummary = {
 };
 
 export default function RoleplaysProgressPage() {
+  const { data: session, status } = useSession();
+  const token = session?.user?.backendToken;
   const [summary, setSummary] = useState<RoleplayPracticeSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getJson<RoleplayPracticeSummary>("/api/user/roleplay-practice-summary", { cache: "no-store" })
+    if (status === "loading") return;
+
+    if (!token) {
+      setSummary(null);
+      setError("You need to log in to view roleplay progress.");
+      return;
+    }
+
+    getJson<RoleplayPracticeSummary>("/api/user/roleplay-practice-summary", {
+      cache: "no-store",
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then((data) => {
         setSummary(data);
         setError(null);
@@ -31,12 +45,12 @@ export default function RoleplaysProgressPage() {
         setSummary(null);
         setError(err instanceof ApiError ? err.message : "Could not load roleplay practice progress.");
       });
-  }, []);
+  }, [status, token]);
 
   return (
     <PageShell>
       <PageHeader eyebrow="Roleplay Practice" title="Roleplay Progress" description="Track roleplay-specific practice attempts, weak skills, and recent activity." />
-      {error ? <SectionBlock><p className="text-sm text-destructive">Could not load roleplay progress: {error}</p><Button asChild className="mt-3" variant="outline"><Link href="/roleplays/progress">Retry</Link></Button></SectionBlock> : !summary ? <SectionBlock><p className="text-sm text-muted-foreground">Loading roleplay progress...</p></SectionBlock> : summary.total_attempts === 0 ? (
+      {status === "loading" ? <SectionBlock><p className="text-sm text-muted-foreground">Loading roleplay progress...</p></SectionBlock> : error ? <SectionBlock><p className="text-sm text-destructive">Could not load roleplay progress: {error}</p><Button asChild className="mt-3" variant="outline"><Link href="/roleplays/progress">Retry</Link></Button></SectionBlock> : !summary ? <SectionBlock><p className="text-sm text-muted-foreground">Loading roleplay progress...</p></SectionBlock> : summary.total_attempts === 0 ? (
         <SectionBlock>
           <p className="text-sm text-muted-foreground">You have not completed roleplay practice yet. Roleplay skill and attempt analytics will appear here after your first drill.</p>
           <Button asChild className="mt-3"><Link href="/roleplays">Browse Roleplays</Link></Button>

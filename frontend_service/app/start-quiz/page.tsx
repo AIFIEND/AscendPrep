@@ -175,19 +175,6 @@ export default function StartQuizPage() {
             <CardDescription>Pick a path: start quickly, customize your session, or resume assigned work.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-7">
-            <section className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-border/70 bg-secondary/20 p-4">
-                <p className="text-sm font-semibold">Start quick practice</p>
-                <p className="mt-1 text-xs text-muted-foreground">Recommended Focus auto-selects weak areas so you can begin immediately.</p>
-                <Button className="mt-3" size="sm" onClick={() => setMode("recommended")}>Use recommended focus</Button>
-              </div>
-              <div className="rounded-xl border border-border/70 bg-secondary/20 p-4">
-                <p className="text-sm font-semibold">Customize practice</p>
-                <p className="mt-1 text-xs text-muted-foreground">Target categories, choose difficulty, and set session length.</p>
-                <Button className="mt-3" size="sm" variant="outline" onClick={() => setMode("targeted")}>Customize session</Button>
-              </div>
-            </section>
-
             {inProgressAssignment && (
               <section className="rounded-xl border border-primary/30 bg-primary/5 p-4">
                 <p className="text-sm font-semibold">Continue assigned objective work</p>

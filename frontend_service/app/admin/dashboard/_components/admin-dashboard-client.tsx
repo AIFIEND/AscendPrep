@@ -919,7 +919,6 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                       <TableHead>Due date</TableHead>
                       <TableHead>Completion</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -933,7 +932,6 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                           <TableCell>{assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}</TableCell>
                           <TableCell>{assignment.completed_count}/{assignment.assigned_count}</TableCell>
                           <TableCell><Badge variant={status === "Completed" ? "secondary" : status === "Overdue" ? "destructive" : "default"}>{status}</Badge></TableCell>
-                          <TableCell className="text-right"><Button size="sm" variant="outline">Manage</Button></TableCell>
                         </TableRow>
                       );
                     })}
@@ -948,7 +946,6 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                           <TableCell>{assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}</TableCell>
                           <TableCell>{assignment.completed_count}/{assignment.assigned_count}</TableCell>
                           <TableCell><Badge variant={status === "Completed" ? "secondary" : status === "Overdue" ? "destructive" : "default"}>{status}</Badge></TableCell>
-                          <TableCell className="text-right"><Button size="sm" variant="outline">Manage</Button></TableCell>
                         </TableRow>
                       );
                     })}

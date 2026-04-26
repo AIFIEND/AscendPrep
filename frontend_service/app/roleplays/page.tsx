@@ -86,9 +86,7 @@ export default function RoleplaysPage() {
           </div>
           <div className="rounded-xl border border-border/70 bg-secondary/25 p-4">
             <p className="text-sm font-semibold">Start roleplay MCQ drill</p>
-            <Button asChild size="sm" className="mt-3">
-              <Link href="/roleplays">Open drill</Link>
-            </Button>
+            <p className="mt-3 text-xs text-muted-foreground">Choose a roleplay below to start a drill.</p>
           </div>
           <div className="rounded-xl border border-border/70 bg-secondary/25 p-4">
             <p className="text-sm font-semibold">View roleplay progress</p>
