@@ -1958,9 +1958,25 @@ def submit_quiz(current_user):
 @app.route('/api/quiz/attempt/<int:attempt_id>/results', methods=['GET'])
 @token_required
 def get_attempt_results(current_user, attempt_id):
-    attempt = QuizAttempt.query.filter_by(id=attempt_id, user_id=current_user.id).first()
+    attempt = QuizAttempt.query.get(attempt_id)
     if not attempt:
         return jsonify({'message': 'Attempt not found'}), 404
+    if current_user.is_superadmin:
+        pass
+    elif attempt.user_id == current_user.id:
+        pass
+    elif current_user.is_admin:
+        attempt_user = User.query.get(attempt.user_id)
+        if not attempt_user or not current_user.institution_id or attempt_user.institution_id != current_user.institution_id:
+            return _json_error("Forbidden", 403, "forbidden")
+        if attempt.assignment_id:
+            assignment = Assignment.query.get(attempt.assignment_id)
+            if not assignment or assignment.institution_id != current_user.institution_id:
+                return _json_error("Forbidden", 403, "forbidden")
+        else:
+            return _json_error("Forbidden", 403, "forbidden")
+    else:
+        return _json_error("Forbidden", 403, "forbidden")
 
     questions = Question.query.filter(Question.id.in_(attempt.question_ids)).all()
     id_to_q = {q.id: q for q in questions}
@@ -2805,6 +2821,12 @@ def get_admin_roleplay_assignment(current_user, assignment_id):
             "username": student.username,
             "status": "Completed" if is_completed else "Not started",
             "score": latest_attempt.score if latest_attempt and assignment.assignment_type != "full_roleplay" else None,
+            "total_questions": latest_attempt.total_questions if latest_attempt and assignment.assignment_type != "full_roleplay" else None,
+            "score_percent": (
+                round((latest_attempt.score / latest_attempt.total_questions) * 100, 1)
+                if latest_attempt and assignment.assignment_type != "full_roleplay" and latest_attempt.total_questions > 0
+                else None
+            ),
             "completed_at": (
                 recipient.completed_at.isoformat()
                 if recipient.completed_at

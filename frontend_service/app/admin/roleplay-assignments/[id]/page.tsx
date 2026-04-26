@@ -19,6 +19,8 @@ type RoleplayStudentRow = {
   username: string;
   status: "Not started" | "Completed";
   score: number | null;
+  total_questions: number | null;
+  score_percent: number | null;
   completed_at: string | null;
   roleplay_id: number;
 };
@@ -99,6 +101,15 @@ export default function AdminRoleplayAssignmentDetailPage() {
   }
 
   const assignmentTypeLabel = detail?.assignment_type === "full_roleplay" ? "Full Roleplay Practice" : "Roleplay MCQ Drill";
+  const formatScore = (student: RoleplayStudentRow) => {
+    if (student.score != null && student.total_questions != null && student.total_questions > 0) {
+      return `${student.score}/${student.total_questions} · ${student.score_percent == null ? "—" : `${student.score_percent}%`}`;
+    }
+    if (student.score_percent != null) {
+      return `${student.score_percent}%`;
+    }
+    return "—";
+  };
 
   return (
     <PageShell>
@@ -176,7 +187,7 @@ export default function AdminRoleplayAssignmentDetailPage() {
                       <TableRow key={student.user_id}>
                         <TableCell className="font-medium">{student.username}</TableCell>
                         <TableCell><Badge variant={student.status === "Completed" ? "secondary" : "outline"}>{student.status}</Badge></TableCell>
-                        <TableCell>{student.score == null ? "—" : `${student.score}%`}</TableCell>
+                        <TableCell>{formatScore(student)}</TableCell>
                         <TableCell>{student.completed_at ? new Date(student.completed_at).toLocaleString() : "—"}</TableCell>
                         <TableCell>
                           <Link className="text-sm underline" href={`/roleplays/${student.roleplay_id}`}>View roleplay</Link>
