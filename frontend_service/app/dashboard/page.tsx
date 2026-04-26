@@ -1,8 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth-options";
-import { Button } from "@/components/ui/button";
 import { AuthRequiredState } from "@/components/auth-required-state";
 import { resolveRole } from "@/lib/role-navigation";
 import { StudentDashboardClient } from "./_components/student-dashboard-client";
@@ -26,12 +24,7 @@ export default async function DashboardPage() {
       <PageHeader
         eyebrow="Your Study Space"
         title={`Welcome back, ${userName}`}
-        description="Keep your streak alive, focus weak categories, and build mastery with short daily sessions."
-        actions={
-          <Button asChild variant="outline">
-            <Link href="/tests-taken">Resume last session</Link>
-          </Button>
-        }
+        description="Choose one focused prep action and keep your study momentum going."
       />
 
       <StudentDashboardClient />
