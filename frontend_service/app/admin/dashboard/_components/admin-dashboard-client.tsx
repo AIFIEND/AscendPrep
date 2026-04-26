@@ -101,6 +101,28 @@ type AdminDashboardClientProps = {
   view?: "overview" | "students" | "assignments";
 };
 
+type RoleplayListItem = {
+  id: number;
+  business_name: string;
+  event: string;
+};
+
+type RoleplayAssignment = {
+  id: number;
+  title: string;
+  instructions: string | null;
+  due_date: string | null;
+  assignment_type: "mcq_drill" | "full_roleplay";
+  drill_type: string | null;
+  drill_label: string | null;
+  roleplay_id: number;
+  roleplay: RoleplayListItem | null;
+  advisor: string | null;
+  created_at: string | null;
+  assigned_count: number;
+  completed_count: number;
+};
+
 const DEFAULT_ASSIGNMENT_FORM = {
   title: "",
   description: "",
@@ -127,13 +149,24 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
   const [config, setConfig] = useState<QuizConfig>({ categories: [], difficulties: [] });
   const [assignmentForm, setAssignmentForm] = useState(DEFAULT_ASSIGNMENT_FORM);
   const [roleplaySummary, setRoleplaySummary] = useState<AdminRoleplayPracticeSummary | null>(null);
+  const [roleplays, setRoleplays] = useState<RoleplayListItem[]>([]);
+  const [roleplayAssignments, setRoleplayAssignments] = useState<RoleplayAssignment[]>([]);
+  const [roleplayForm, setRoleplayForm] = useState({
+    title: "",
+    instructions: "",
+    due_date: "",
+    roleplay_id: "",
+    assignment_type: "mcq_drill" as "mcq_drill" | "full_roleplay",
+    drill_type: "determine_objective",
+    student_ids: [] as number[],
+  });
 
   const token = session?.user?.backendToken;
 
   const loadData = async () => {
     if (!token) return;
     try {
-      const [summaryResp, assignmentResp, configResp] = await Promise.all([
+      const [summaryResp, assignmentResp, configResp, roleplayCatalogResp, roleplayAssignmentsResp] = await Promise.all([
         getJson<AdminSummary>("/api/admin/institution/summary", {
           headers: { Authorization: `Bearer ${token}` },
         }),
@@ -141,10 +174,16 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
           headers: { Authorization: `Bearer ${token}` },
         }),
         getJson<QuizConfig>("/api/quiz-config"),
+        getJson<RoleplayListItem[]>("/api/roleplays?active=1"),
+        getJson<RoleplayAssignment[]>("/api/admin/roleplay-assignments", {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
       ]);
       setState(summaryResp);
       setAssignments(assignmentResp);
       setConfig(configResp);
+      setRoleplays(roleplayCatalogResp ?? []);
+      setRoleplayAssignments(roleplayAssignmentsResp ?? []);
       setError(null);
       try {
         const roleplayResp = await getJson<AdminRoleplayPracticeSummary>("/api/admin/roleplay-practice-summary", {
@@ -235,6 +274,40 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
       setActionSuccess("Assignment created successfully.");
     } catch (e: unknown) {
       setActionError(e instanceof ApiError ? e.message : "Could not create assignment.");
+    }
+  };
+
+  const createRoleplayAssignment = async () => {
+    if (!token || !roleplayForm.roleplay_id || roleplayForm.student_ids.length === 0) return;
+    setActionError("");
+    setActionSuccess("");
+    try {
+      await apiFetch("/api/admin/roleplay-assignments", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          roleplay_id: Number(roleplayForm.roleplay_id),
+          assignment_type: roleplayForm.assignment_type,
+          drill_type: roleplayForm.assignment_type === "mcq_drill" ? roleplayForm.drill_type : null,
+          title: roleplayForm.title.trim() || null,
+          instructions: roleplayForm.instructions.trim() || null,
+          due_date: roleplayForm.due_date || null,
+          student_ids: roleplayForm.student_ids,
+        }),
+      });
+      setRoleplayForm({
+        title: "",
+        instructions: "",
+        due_date: "",
+        roleplay_id: "",
+        assignment_type: "mcq_drill",
+        drill_type: "determine_objective",
+        student_ids: [],
+      });
+      await loadData();
+      setActionSuccess("Roleplay assignment created successfully.");
+    } catch (e: unknown) {
+      setActionError(e instanceof ApiError ? e.message : "Could not create roleplay assignment.");
     }
   };
 
@@ -697,6 +770,108 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
 
           <Card className="border-border/70">
             <CardHeader>
+              <CardTitle>Create roleplay assignment</CardTitle>
+              <CardDescription>Assign MCQ Drill or Full Roleplay Practice to selected students.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>Roleplay</Label>
+                  <select
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={roleplayForm.roleplay_id}
+                    onChange={(e) => setRoleplayForm((prev) => ({ ...prev, roleplay_id: e.target.value }))}
+                  >
+                    <option value="">Select a roleplay</option>
+                    {roleplays.map((roleplay) => (
+                      <option key={roleplay.id} value={roleplay.id}>
+                        {roleplay.business_name} · {roleplay.event}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Assignment type</Label>
+                  <RadioGroup
+                    value={roleplayForm.assignment_type}
+                    onValueChange={(value) => setRoleplayForm((prev) => ({ ...prev, assignment_type: value as "mcq_drill" | "full_roleplay" }))}
+                    className="flex gap-4 pt-2"
+                  >
+                    <div className="flex items-center gap-2"><RadioGroupItem value="mcq_drill" id="rp-type-drill" /><Label htmlFor="rp-type-drill">MCQ Drill</Label></div>
+                    <div className="flex items-center gap-2"><RadioGroupItem value="full_roleplay" id="rp-type-full" /><Label htmlFor="rp-type-full">Full Roleplay Practice</Label></div>
+                  </RadioGroup>
+                </div>
+                {roleplayForm.assignment_type === "mcq_drill" && (
+                  <div className="space-y-1">
+                    <Label>Drill focus</Label>
+                    <select
+                      className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                      value={roleplayForm.drill_type}
+                      onChange={(e) => setRoleplayForm((prev) => ({ ...prev, drill_type: e.target.value }))}
+                    >
+                      <option value="determine_objective">Determine the Objective</option>
+                      <option value="identify_performance_indicators">Identify Performance Indicators</option>
+                      <option value="plan_opening">Plan the Opening</option>
+                      <option value="anticipate_judge_questions">Anticipate Judge Questions</option>
+                      <option value="define_key_terms">Define Key Terms</option>
+                      <option value="plan_closing">Plan the Closing</option>
+                    </select>
+                  </div>
+                )}
+                <div className="space-y-1">
+                  <Label>Due date (optional)</Label>
+                  <Input
+                    type="datetime-local"
+                    value={roleplayForm.due_date}
+                    onChange={(e) => setRoleplayForm((prev) => ({ ...prev, due_date: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1 md:col-span-2">
+                  <Label>Title (optional)</Label>
+                  <Input
+                    value={roleplayForm.title}
+                    onChange={(e) => setRoleplayForm((prev) => ({ ...prev, title: e.target.value }))}
+                    placeholder="Roleplay prep assignment title"
+                  />
+                </div>
+                <div className="space-y-1 md:col-span-2">
+                  <Label>Instructions (optional)</Label>
+                  <Textarea
+                    value={roleplayForm.instructions}
+                    onChange={(e) => setRoleplayForm((prev) => ({ ...prev, instructions: e.target.value }))}
+                    placeholder="Provide context for what students should focus on."
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2 rounded-xl border border-border/70 bg-secondary/25 p-3">
+                <Label className="font-medium">Assign to students</Label>
+                <div className="max-h-44 overflow-y-auto rounded-lg border border-border/70 bg-background p-2 space-y-1">
+                  {institutionLearners.map((user) => (
+                    <div key={user.id} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`rp-aud-${user.id}`}
+                        checked={roleplayForm.student_ids.includes(user.id)}
+                        onCheckedChange={(checked) =>
+                          setRoleplayForm((prev) => ({
+                            ...prev,
+                            student_ids: checked
+                              ? [...prev.student_ids, user.id]
+                              : prev.student_ids.filter((id) => id !== user.id),
+                          }))
+                        }
+                      />
+                      <Label htmlFor={`rp-aud-${user.id}`}>{user.username}</Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <Button onClick={createRoleplayAssignment}>Create roleplay assignment</Button>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/70">
+            <CardHeader>
               <CardTitle>Assignment tracking</CardTitle>
               <CardDescription>Assignment specs and completion metrics.</CardDescription>
             </CardHeader>
@@ -720,6 +895,33 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                   <p className="text-muted-foreground">
                     Avg score: {assignment.average_score == null ? "—" : `${assignment.average_score.toFixed(1)}%`} · Shuffle: {assignment.shuffle_questions ? "On" : "Off"} · Explanations: {assignment.show_explanations ? "On" : "Off"}
                     {assignment.minimum_passing_score ? ` · Passing target: ${assignment.minimum_passing_score}%` : ""}
+                  </p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/70">
+            <CardHeader>
+              <CardTitle>Roleplay assignment tracking</CardTitle>
+              <CardDescription>Track assigned MCQ Drill and Full Roleplay Practice work.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {roleplayAssignments.map((assignment) => (
+                <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-3 text-sm space-y-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">{assignment.title}</span>
+                    <span>{assignment.completed_count}/{assignment.assigned_count} completed</span>
+                  </div>
+                  <p className="text-muted-foreground">
+                    {assignment.roleplay?.business_name ?? `Roleplay #${assignment.roleplay_id}`} · {assignment.roleplay?.event ?? "Event not available"}
+                  </p>
+                  <p className="text-muted-foreground">
+                    Type: {assignment.assignment_type === "mcq_drill" ? "MCQ Drill" : "Full Roleplay Practice"}
+                    {assignment.assignment_type === "mcq_drill" && assignment.drill_label ? ` · ${assignment.drill_label}` : ""}
+                  </p>
+                  <p className="text-muted-foreground">
+                    Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"} · Advisor: {assignment.advisor ?? "Advisor"}
                   </p>
                 </div>
               ))}

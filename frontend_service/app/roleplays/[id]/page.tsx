@@ -23,7 +23,7 @@ type RoleplayAssignment = {
   title: string;
   instructions: string | null;
   due_date: string | null;
-  assignment_type: "full" | "drill";
+  assignment_type: "mcq_drill" | "full_roleplay";
   drill_type: string | null;
   drill_label: string | null;
   roleplay_id: number;
@@ -178,7 +178,7 @@ export default function RoleplayDetailPage() {
     [summary]
   );
 
-  const [assignType, setAssignType] = useState<"full" | "drill">("full");
+  const [assignType, setAssignType] = useState<"mcq_drill" | "full_roleplay">("full_roleplay");
   const [drillType, setDrillType] = useState<string>(ROLEPLAY_DRILL_OPTIONS[0].value);
   const [assignToAll, setAssignToAll] = useState(true);
   const [selectedUsers, setSelectedUsers] = useState<number[]>([]);
@@ -186,7 +186,6 @@ export default function RoleplayDetailPage() {
   const [instructions, setInstructions] = useState("");
   const [assignStatus, setAssignStatus] = useState<string>("");
   const [assignError, setAssignError] = useState<string>("");
-  const [completing, setCompleting] = useState(false);
 
   const [practiceStarted, setPracticeStarted] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -204,7 +203,7 @@ export default function RoleplayDetailPage() {
       .catch(() => setPracticeSummary(null));
   }, [roleplayId, session?.user, practiceResult]);
 
-  const focus = assignment?.assignment_type === "drill" ? assignment.drill_type : null;
+  const focus = assignment?.assignment_type === "mcq_drill" ? assignment.drill_type : null;
 
   const showOverview = !focus;
   const showObjective = !focus || focus === "determine_objective";
@@ -286,38 +285,24 @@ export default function RoleplayDetailPage() {
         eyebrow={assignment ? "Assigned Roleplay Work" : "Roleplay Preparation"}
         title={roleplay?.business_name || "Roleplay"}
         description={assignment
-          ? `${assignment.assignment_type === "full" ? "Full Roleplay" : `Targeted Drill: ${assignment.drill_label}`} assigned by ${assignment.advisor ?? "your advisor"}.`
+          ? `${assignment.assignment_type === "full_roleplay" ? "Full Roleplay Practice" : `MCQ Drill: ${assignment.drill_label}`} assigned by ${assignment.advisor ?? "your advisor"}.`
           : "Prepare with focused strategy cards and roleplay practice questions."}
-        actions={assignment ? <Badge>{assignment.assignment_type === "full" ? "Full Roleplay" : assignment.drill_label}</Badge> : null}
+        actions={assignment ? <Badge>{assignment.assignment_type === "full_roleplay" ? "Full Roleplay Practice" : "MCQ Drill"}</Badge> : null}
       />
 
       {assignment && (
         <SectionBlock className="border-primary/30 bg-primary/5">
           <p className="text-sm font-medium">
-            {assignment.assignment_type === "full" ? "Complete Full Roleplay" : `Practice: ${assignment.drill_label}`}
+            {assignment.assignment_type === "full_roleplay" ? "Complete Full Roleplay Practice" : "Start MCQ Drill"}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             {assignment.instructions || "Use the prep guide below to complete this assigned practice."}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}</p>
           {role === "student" && (
-            <div className="mt-3">
-              <Button
-                size="sm"
-                disabled={assignment.is_completed || completing}
-                onClick={async () => {
-                  setCompleting(true);
-                  try {
-                    await apiFetch(`/api/user/roleplay-assignments/${assignment.id}/complete`, { method: "POST" });
-                    window.location.reload();
-                  } finally {
-                    setCompleting(false);
-                  }
-                }}
-              >
-                {assignment.is_completed ? "Completed" : completing ? "Saving..." : "Mark practice complete"}
-              </Button>
-            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Status: {assignment.is_completed ? "Completed" : "Assigned"}
+            </p>
           )}
         </SectionBlock>
       )}
@@ -329,12 +314,12 @@ export default function RoleplayDetailPage() {
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <div className="space-y-2">
               <Label>Assignment type</Label>
-              <RadioGroup value={assignType} onValueChange={(v) => setAssignType(v as "full" | "drill")} className="space-y-2">
-                <div className="flex items-center gap-2"><RadioGroupItem id="assign-full" value="full" /><Label htmlFor="assign-full">Full Roleplay</Label></div>
-                <div className="flex items-center gap-2"><RadioGroupItem id="assign-drill" value="drill" /><Label htmlFor="assign-drill">Targeted Drill</Label></div>
+              <RadioGroup value={assignType} onValueChange={(v) => setAssignType(v as "mcq_drill" | "full_roleplay")} className="space-y-2">
+                <div className="flex items-center gap-2"><RadioGroupItem id="assign-full" value="full_roleplay" /><Label htmlFor="assign-full">Full Roleplay Practice</Label></div>
+                <div className="flex items-center gap-2"><RadioGroupItem id="assign-drill" value="mcq_drill" /><Label htmlFor="assign-drill">MCQ Drill</Label></div>
               </RadioGroup>
             </div>
-            {assignType === "drill" && (
+            {assignType === "mcq_drill" && (
               <div className="space-y-2">
                 <Label>Drill focus</Label>
                 <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={drillType} onChange={(e) => setDrillType(e.target.value)}>
@@ -389,7 +374,7 @@ export default function RoleplayDetailPage() {
                   body: JSON.stringify({
                     roleplay_id: roleplay.id,
                     assignment_type: assignType,
-                    drill_type: assignType === "drill" ? drillType : null,
+                    drill_type: assignType === "mcq_drill" ? drillType : null,
                     assign_to_all: assignToAll,
                     selected_user_ids: assignToAll ? [] : selectedUsers,
                     due_date: dueDate || null,

@@ -55,7 +55,7 @@ type LearnerRoleplayAssignment = {
   title: string;
   instructions: string | null;
   due_date: string | null;
-  assignment_type: "full" | "drill";
+  assignment_type: "mcq_drill" | "full_roleplay";
   drill_label: string | null;
   roleplay_id: number;
   roleplay: { business_name: string; event: string; difficulty: string; task_type: string } | null;
@@ -169,9 +169,14 @@ export function StudentDashboardClient() {
               You are currently level <strong>{summary.level}</strong> with <strong>{summary.xp} XP</strong>.
               Keep your daily routine to build long-term gains.
             </p>
-            <Button asChild size="lg" className="w-fit">
-              <Link href="/start-quiz">Practice</Link>
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="lg" className="w-fit">
+                <Link href="/start-quiz">Objective Test Prep</Link>
+              </Button>
+              <Button asChild size="lg" variant="outline" className="w-fit">
+                <Link href="/roleplays">Roleplay Prep</Link>
+              </Button>
+            </div>
           </div>
 
           <Card>
@@ -200,7 +205,7 @@ export function StudentDashboardClient() {
       <SectionBlock>
         <div className="mb-4 flex items-end justify-between">
           <div>
-            <h3 className="section-title">Roleplay Practice Progress</h3>
+            <h3 className="section-title">Roleplay Prep · Roleplay Progress</h3>
             <p className="section-subtitle">Track your latest roleplay practice performance.</p>
           </div>
           <Button asChild size="sm" variant="outline">
@@ -243,9 +248,12 @@ export function StudentDashboardClient() {
       <SectionBlock>
         <div className="mb-4 flex items-end justify-between">
           <div>
-            <h3 className="section-title">Assigned to you</h3>
-            <p className="section-subtitle">Assignments from your instructor appear here.</p>
+            <h3 className="section-title">Roleplay Prep · Assigned Roleplays</h3>
+            <p className="section-subtitle">MCQ Drill and Full Roleplay Practice assignments from your advisor.</p>
           </div>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/roleplays">Browse Roleplays</Link>
+          </Button>
         </div>
         {assignmentsLoading ? (
           <p className="text-sm text-muted-foreground">Loading assignments...</p>
@@ -260,11 +268,14 @@ export function StudentDashboardClient() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="font-medium">{assignment.title}</p>
                   <Badge variant={assignment.is_completed ? "secondary" : "default"}>
-                    {assignment.is_completed ? "Completed" : assignment.assignment_type === "full" ? "Full Roleplay" : assignment.drill_label}
+                    {assignment.is_completed ? "Completed" : assignment.assignment_type === "full_roleplay" ? "Full Roleplay Practice" : "MCQ Drill"}
                   </Badge>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {assignment.roleplay?.business_name} · {assignment.roleplay?.event} · Advisor: {assignment.advisor ?? "Advisor"}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Type: {assignment.assignment_type === "full_roleplay" ? "Full Roleplay Practice" : `MCQ Drill${assignment.drill_label ? ` · ${assignment.drill_label}` : ""}`}
                 </p>
                 {assignment.instructions && <p className="mt-1 text-sm text-muted-foreground">{assignment.instructions}</p>}
                 <div className="mt-2 text-xs text-muted-foreground">
@@ -273,12 +284,34 @@ export function StudentDashboardClient() {
                 <div className="mt-3">
                   <Button asChild size="sm" variant={assignment.is_completed ? "outline" : "default"}>
                     <Link href={`/roleplays/${assignment.roleplay_id}?roleplayAssignmentId=${assignment.id}`}>
-                      {assignment.is_completed ? "Review roleplay prep" : assignment.assignment_type === "full" ? "Complete Full Roleplay" : `Practice: ${assignment.drill_label}`}
+                      {assignment.is_completed ? "Review Roleplay Prep" : assignment.assignment_type === "full_roleplay" ? "Open Full Roleplay Practice" : "Start MCQ Drill"}
                     </Link>
                   </Button>
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </SectionBlock>
+
+      <SectionBlock>
+        <div className="mb-4 flex items-end justify-between">
+          <div>
+            <h3 className="section-title">Objective Test Prep · Assigned Objective Tests</h3>
+            <p className="section-subtitle">Objective test assignments from your instructor.</p>
+          </div>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/start-quiz">Start Objective Test Prep</Link>
+          </Button>
+        </div>
+        {assignmentsLoading ? (
+          <p className="text-sm text-muted-foreground">Loading assignments...</p>
+        ) : assignmentError ? (
+          <p className="text-sm text-destructive">{assignmentError}</p>
+        ) : assignments.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No objective test assignments yet.</p>
+        ) : (
+          <div className="space-y-3">
             {assignments.map((assignment) => (
               <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
