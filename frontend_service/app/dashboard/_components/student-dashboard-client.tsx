@@ -155,11 +155,11 @@ export function StudentDashboardClient() {
             </div>
             <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">What should I do right now?</h2>
             <p className="max-w-xl text-sm text-muted-foreground sm:text-base">
-              Keep momentum with one focused prep session. Start objective questions or jump into a roleplay scenario.
+              Keep momentum with one focused prep session. Start exam questions or jump into a roleplay scenario.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button asChild size="lg" className="w-fit">
-                <Link href="/start-quiz">Objective Test Prep</Link>
+                <Link href="/start-quiz">Exam Prep</Link>
               </Button>
               <Button asChild size="lg" variant="outline" className="w-fit">
                 <Link href="/roleplays">Roleplay Prep</Link>
@@ -189,7 +189,7 @@ export function StudentDashboardClient() {
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                Objective details in{" "}
+                Exam prep details in{" "}
                 <Link href="/progress" className="font-medium text-primary underline-offset-4 hover:underline">
                   Progress
                 </Link>
@@ -209,7 +209,7 @@ export function StudentDashboardClient() {
             </div>
             <Button asChild size="sm">
               <Link href={`/practice?attemptId=${inProgressObjectiveAssignment.in_progress_attempt_id}`}>
-                Resume objective assignment <ArrowRight className="ml-1 h-4 w-4" />
+                Resume exam prep assignment <ArrowRight className="ml-1 h-4 w-4" />
               </Link>
             </Button>
           </div>
@@ -220,15 +220,15 @@ export function StudentDashboardClient() {
         <SectionBlock>
           <div className="mb-4">
             <h3 className="section-title">Assigned work</h3>
-            <p className="section-subtitle">Complete assigned objective tests and roleplay practice.</p>
+            <p className="section-subtitle">Complete assigned exam prep work and roleplay practice.</p>
           </div>
 
           <div className="space-y-5">
             {showObjectiveAssignments && (
               <div>
-                <h4 className="mb-3 text-sm font-semibold tracking-wide text-muted-foreground">Assigned objective tests</h4>
+                <h4 className="mb-3 text-sm font-semibold tracking-wide text-muted-foreground">Assigned exam prep</h4>
                 {assignmentsLoading ? (
-                  <p className="text-sm text-muted-foreground">Loading objective assignments...</p>
+                  <p className="text-sm text-muted-foreground">Loading exam prep assignments...</p>
                 ) : assignmentError ? (
                   <p className="text-sm text-destructive">{assignmentError}</p>
                 ) : (

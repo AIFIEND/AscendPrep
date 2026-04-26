@@ -41,7 +41,7 @@ function getNav(role: AppRole): NavItem[] {
 
   return [
     { href: "/dashboard", label: "Dashboard" },
-    { href: "/start-quiz", label: "Objective Prep" },
+    { href: "/start-quiz", label: "Exam Prep" },
     { href: "/roleplays", label: "Roleplay Prep" },
     { href: "/results", label: "Results" },
     { href: "/progress", label: "Progress" },

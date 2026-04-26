@@ -279,9 +279,9 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
       });
       await loadData();
       setAssignmentForm(DEFAULT_ASSIGNMENT_FORM);
-      setObjectiveActionSuccess("Objective test assignment created successfully.");
+      setObjectiveActionSuccess("Exam prep assignment created successfully.");
     } catch (e: unknown) {
-      setObjectiveActionError(e instanceof ApiError ? e.message : "Could not create objective test assignment.");
+      setObjectiveActionError(e instanceof ApiError ? e.message : "Could not create exam prep assignment.");
     } finally {
       setCreatingObjectiveAssignment(false);
     }
@@ -404,7 +404,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
             </CardHeader>
             <CardContent className="space-y-2">
               {assignments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No objective assignments have been created yet. Use the Assignments tab to create the first one.</p>
+                <p className="text-sm text-muted-foreground">No exam prep assignments have been created yet. Use the Assignments tab to create the first one.</p>
               ) : (
                 assignments.slice(0, 5).map((assignment) => (
                   <div key={assignment.id} className="rounded-xl border border-border/70 bg-secondary/25 p-3 text-sm space-y-1">
@@ -598,7 +598,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
             <CardContent className="space-y-4">
               {objectiveActionError && (
                 <Alert className="border-destructive/50">
-                  <AlertTitle>Couldn’t create objective assignment</AlertTitle>
+                  <AlertTitle>Couldn’t create exam prep assignment</AlertTitle>
                   <AlertDescription>{objectiveActionError}</AlertDescription>
                 </Alert>
               )}
@@ -906,11 +906,11 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
           <Card className="border-border/70">
             <CardHeader>
               <CardTitle>Assignment tracking</CardTitle>
-              <CardDescription>Unified view of objective and roleplay assignments.</CardDescription>
+              <CardDescription>Unified view of exam prep and roleplay assignments.</CardDescription>
             </CardHeader>
             <CardContent>
               {assignments.length === 0 && roleplayAssignments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No assignments to track yet. Create an objective or roleplay assignment above.</p>
+                <p className="text-sm text-muted-foreground">No assignments to track yet. Create an exam prep or roleplay assignment above.</p>
               ) : (
                 <Table>
                   <TableHeader>
@@ -930,7 +930,7 @@ export const AdminDashboardClient = ({ view = "overview" }: AdminDashboardClient
                       return (
                         <TableRow key={`objective-${assignment.id}`}>
                           <TableCell className="font-medium">{assignment.title}</TableCell>
-                          <TableCell>Objective Test</TableCell>
+                          <TableCell>Exam Prep</TableCell>
                           <TableCell>{assignment.due_date ? new Date(assignment.due_date).toLocaleString() : "No due date"}</TableCell>
                           <TableCell>{assignment.completed_count}/{assignment.assigned_count}</TableCell>
                           <TableCell><Badge variant={status === "Completed" ? "secondary" : status === "Overdue" ? "destructive" : "default"}>{status}</Badge></TableCell>
