@@ -63,6 +63,27 @@ type LearnerRoleplayAssignment = {
   is_completed: boolean;
 };
 
+type RoleplayPracticeSummary = {
+  total_attempts: number;
+  roleplays_practiced_count: number;
+  average_score_percent: number | null;
+  best_score_percent: number | null;
+  recent_attempts: Array<{
+    id: number;
+    roleplay_id: number;
+    business_name: string | null;
+    event: string | null;
+    score_percent: number | null;
+    completed_at: string | null;
+  }>;
+  skill_breakdown: Array<{
+    skill: string;
+    correct: number;
+    total: number;
+    score_percent: number;
+  }>;
+};
+
 export function StudentDashboardClient() {
   const { data: session } = useSession();
   const token = session?.user?.backendToken;
@@ -73,6 +94,8 @@ export function StudentDashboardClient() {
   const [assignmentsLoading, setAssignmentsLoading] = useState(true);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [startingAssignmentId, setStartingAssignmentId] = useState<number | null>(null);
+  const [roleplayProgress, setRoleplayProgress] = useState<RoleplayPracticeSummary | null>(null);
+  const [roleplayProgressError, setRoleplayProgressError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -111,6 +134,19 @@ export function StudentDashboardClient() {
     })
       .then((rows) => setRoleplayAssignments(rows ?? []))
       .catch(() => setRoleplayAssignments([]));
+
+    getJson<RoleplayPracticeSummary>("/api/user/roleplay-practice-summary", {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    })
+      .then((data) => {
+        setRoleplayProgress(data);
+        setRoleplayProgressError(null);
+      })
+      .catch((err) => {
+        setRoleplayProgress(null);
+        setRoleplayProgressError(err instanceof ApiError ? err.message : "Could not load roleplay progress.");
+      });
   }, [token]);
 
   const recentAverage = useMemo(() => {
@@ -160,6 +196,49 @@ export function StudentDashboardClient() {
         <CompactStat icon={<TrendingUp className="h-4 w-4" />} label="Recent average" value={`${recentAverage ?? "--"}%`} note="Latest attempts" />
         <CompactStat icon={<Award className="h-4 w-4" />} label="Questions answered" value={summary.total_questions_answered.toString()} note="All time" />
       </section>
+
+      <SectionBlock>
+        <div className="mb-4 flex items-end justify-between">
+          <div>
+            <h3 className="section-title">Roleplay Practice Progress</h3>
+            <p className="section-subtitle">Track your latest roleplay practice performance.</p>
+          </div>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/roleplays/progress">View full progress</Link>
+          </Button>
+        </div>
+        {roleplayProgressError ? (
+          <p className="text-sm text-destructive">{roleplayProgressError}</p>
+        ) : !roleplayProgress ? (
+          <p className="text-sm text-muted-foreground">Loading roleplay progress...</p>
+        ) : roleplayProgress.total_attempts === 0 ? (
+          <p className="text-sm text-muted-foreground">You have not completed any roleplay practice yet.</p>
+        ) : (
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <MetricPill label="Total Attempts" value={String(roleplayProgress.total_attempts)} />
+              <MetricPill label="Average Score" value={roleplayProgress.average_score_percent == null ? "—" : `${roleplayProgress.average_score_percent}%`} />
+              <MetricPill label="Roleplays Practiced" value={String(roleplayProgress.roleplays_practiced_count)} />
+              <MetricPill
+                label="Weakest Skill"
+                value={roleplayProgress.skill_breakdown[0]?.skill ?? "—"}
+              />
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Recent Roleplay Practice</p>
+              {roleplayProgress.recent_attempts.slice(0, 3).map((attempt) => (
+                <div key={attempt.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm">
+                  <span>{attempt.business_name ?? `Roleplay #${attempt.roleplay_id}`}</span>
+                  <span className="text-muted-foreground">
+                    {attempt.score_percent == null ? "—" : `${attempt.score_percent}%`}
+                    {attempt.completed_at ? ` · ${new Date(attempt.completed_at).toLocaleString()}` : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </SectionBlock>
 
       <SectionBlock>
         <div className="mb-4 flex items-end justify-between">

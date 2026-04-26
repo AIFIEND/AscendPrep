@@ -49,10 +49,18 @@ type RoleplayPracticeAttempt = {
   roleplay_id: number;
   business_name: string | null;
   event: string | null;
+  industry: string | null;
   score: number;
   total_questions: number;
-  results_by_skill: Record<string, { correct: number; total: number }>;
+  score_percent: number | null;
   completed_at: string | null;
+};
+
+type RoleplayPracticeSummary = {
+  attempts: number;
+  latest_attempt: RoleplayPracticeAttempt | null;
+  best_score_percent: number | null;
+  skill_breakdown: Array<{ skill: string; correct: number; total: number; score_percent: number }>;
 };
 
 function asStringArray(value: unknown): string[] {
@@ -187,16 +195,13 @@ export default function RoleplayDetailPage() {
   const [practiceSubmitError, setPracticeSubmitError] = useState<string | null>(null);
   const [practiceResult, setPracticeResult] = useState<RoleplayPracticeSubmitResult | null>(null);
   const [hasSubmittedPractice, setHasSubmittedPractice] = useState(false);
-  const [latestAttempt, setLatestAttempt] = useState<RoleplayPracticeAttempt | null>(null);
+  const [practiceSummary, setPracticeSummary] = useState<RoleplayPracticeSummary | null>(null);
 
   useEffect(() => {
     if (!Number.isFinite(roleplayId) || !session?.user) return;
-    getJson<RoleplayPracticeAttempt[]>("/api/user/roleplay-practice-attempts", { cache: "no-store" })
-      .then((attempts) => {
-        const mostRecent = attempts.find((attempt) => attempt.roleplay_id === roleplayId) ?? null;
-        setLatestAttempt(mostRecent);
-      })
-      .catch(() => setLatestAttempt(null));
+    getJson<RoleplayPracticeSummary>(`/api/roleplays/${roleplayId}/practice-summary`, { cache: "no-store" })
+      .then((summaryData) => setPracticeSummary(summaryData))
+      .catch(() => setPracticeSummary(null));
   }, [roleplayId, session?.user, practiceResult]);
 
   const focus = assignment?.assignment_type === "drill" ? assignment.drill_type : null;
@@ -458,12 +463,19 @@ export default function RoleplayDetailPage() {
                   </Button>
                 )}
               </div>
-              {latestAttempt && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Latest saved score: {latestAttempt.score} / {latestAttempt.total_questions}
-                  {latestAttempt.completed_at ? ` • ${new Date(latestAttempt.completed_at).toLocaleString()}` : ""}
-                </p>
-              )}
+              <div className="mt-3 rounded-lg border border-border/70 bg-secondary/25 p-3 text-sm">
+                <p className="font-medium">Your Roleplay Progress</p>
+                {!practiceSummary || practiceSummary.attempts === 0 || !practiceSummary.latest_attempt ? (
+                  <p className="mt-1 text-muted-foreground">You have not practiced this roleplay yet.</p>
+                ) : (
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <p>Attempts: <span className="font-medium">{practiceSummary.attempts}</span></p>
+                    <p>Latest Score: <span className="font-medium">{practiceSummary.latest_attempt.score_percent ?? "—"}%</span></p>
+                    <p>Best Score: <span className="font-medium">{practiceSummary.best_score_percent ?? "—"}%</span></p>
+                    <p>Last Practiced: <span className="font-medium">{practiceSummary.latest_attempt.completed_at ? new Date(practiceSummary.latest_attempt.completed_at).toLocaleString() : "—"}</span></p>
+                  </div>
+                )}
+              </div>
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 {showIndicators && renderListSection("Performance Indicators", performanceIndicators)}
                 {showTerms && (

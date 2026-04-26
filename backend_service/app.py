@@ -2242,26 +2242,290 @@ def submit_roleplay_practice(current_user, roleplay_id):
 @app.route('/api/user/roleplay-practice-attempts', methods=['GET'])
 @token_required
 def list_user_roleplay_practice_attempts(current_user):
-    attempts = RoleplayPracticeAttempt.query.filter_by(user_id=current_user.id).order_by(RoleplayPracticeAttempt.completed_at.desc()).limit(100).all()
-    if not attempts:
-        return jsonify([]), 200
-    roleplay_ids = list({attempt.roleplay_id for attempt in attempts})
-    roleplays = Roleplay.query.filter(Roleplay.id.in_(roleplay_ids)).all()
-    roleplay_by_id = {roleplay.id: roleplay for roleplay in roleplays}
-    payload = []
+    limit_raw = request.args.get("limit")
+    try:
+        limit = int(limit_raw) if limit_raw is not None else 20
+    except (TypeError, ValueError):
+        return _json_error("limit must be an integer", 400, "invalid_limit")
+    limit = max(1, min(limit, 100))
+
+    rows = (
+        db.session.query(RoleplayPracticeAttempt, Roleplay)
+        .outerjoin(Roleplay, Roleplay.id == RoleplayPracticeAttempt.roleplay_id)
+        .filter(RoleplayPracticeAttempt.user_id == current_user.id)
+        .order_by(RoleplayPracticeAttempt.completed_at.desc().nullslast(), RoleplayPracticeAttempt.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return jsonify({
+        "attempts": [_serialize_roleplay_attempt_row(attempt, roleplay) for attempt, roleplay in rows]
+    }), 200
+
+
+def _attempt_score_percent(score: int | None, total_questions: int | None):
+    if not isinstance(score, (int, float)) or not isinstance(total_questions, (int, float)) or total_questions <= 0:
+        return None
+    return round((score / total_questions) * 100, 1)
+
+
+def _serialize_roleplay_attempt_row(attempt: RoleplayPracticeAttempt, roleplay: Roleplay | None):
+    return {
+        "id": attempt.id,
+        "roleplay_id": attempt.roleplay_id,
+        "business_name": roleplay.business_name if roleplay else None,
+        "event": roleplay.event if roleplay else None,
+        "industry": roleplay.industry if roleplay else None,
+        "score": attempt.score,
+        "total_questions": attempt.total_questions,
+        "score_percent": _attempt_score_percent(attempt.score, attempt.total_questions),
+        "completed_at": attempt.completed_at.isoformat() if attempt.completed_at else None,
+    }
+
+
+def _iter_skill_rows(raw_results):
+    if not isinstance(raw_results, dict):
+        return
+    for key, value in raw_results.items():
+        if not isinstance(key, str):
+            continue
+        if not isinstance(value, dict):
+            continue
+        correct = value.get("correct")
+        total = value.get("total")
+        if not isinstance(correct, (int, float)) or not isinstance(total, (int, float)) or total < 0:
+            continue
+        yield key.strip() or "General", int(correct), int(total)
+
+
+def _aggregate_skill_totals(attempts: list[RoleplayPracticeAttempt]):
+    skill_totals = defaultdict(lambda: {"correct": 0, "total": 0})
     for attempt in attempts:
-        roleplay = roleplay_by_id.get(attempt.roleplay_id)
+        for skill_name, correct, total in _iter_skill_rows(attempt.results_by_skill_json):
+            skill_totals[skill_name]["correct"] += correct
+            skill_totals[skill_name]["total"] += total
+    payload = []
+    for skill_name, totals in skill_totals.items():
+        if totals["total"] <= 0:
+            continue
+        percent = round((totals["correct"] / totals["total"]) * 100, 1)
         payload.append({
-            "id": attempt.id,
+            "skill": skill_name,
+            "correct": totals["correct"],
+            "total": totals["total"],
+            "score_percent": percent,
+        })
+    payload.sort(key=lambda item: (item["score_percent"], item["skill"]))
+    return payload
+
+
+def _build_user_roleplay_summary_payload(user_id: int):
+    rows = (
+        db.session.query(RoleplayPracticeAttempt, Roleplay)
+        .outerjoin(Roleplay, Roleplay.id == RoleplayPracticeAttempt.roleplay_id)
+        .filter(RoleplayPracticeAttempt.user_id == user_id)
+        .order_by(RoleplayPracticeAttempt.completed_at.desc().nullslast(), RoleplayPracticeAttempt.id.desc())
+        .all()
+    )
+    attempts = [row[0] for row in rows]
+
+    percents = [
+        _attempt_score_percent(attempt.score, attempt.total_questions)
+        for attempt in attempts
+        if _attempt_score_percent(attempt.score, attempt.total_questions) is not None
+    ]
+    average_score_percent = round(sum(percents) / len(percents), 1) if percents else None
+    best_score_percent = round(max(percents), 1) if percents else None
+
+    recent_attempts = [_serialize_roleplay_attempt_row(attempt, roleplay) for attempt, roleplay in rows[:5]]
+    skill_breakdown = _aggregate_skill_totals(attempts)
+
+    roleplay_stats_map = {}
+    for attempt, roleplay in rows:
+        stat = roleplay_stats_map.get(attempt.roleplay_id)
+        percent = _attempt_score_percent(attempt.score, attempt.total_questions)
+        if not stat:
+            stat = {
+                "roleplay_id": attempt.roleplay_id,
+                "business_name": roleplay.business_name if roleplay else None,
+                "event": roleplay.event if roleplay else None,
+                "industry": roleplay.industry if roleplay else None,
+                "attempts": 0,
+                "average_score_percent": None,
+                "best_score_percent": None,
+                "latest_completed_at": attempt.completed_at.isoformat() if attempt.completed_at else None,
+                "_percent_values": [],
+            }
+            roleplay_stats_map[attempt.roleplay_id] = stat
+        stat["attempts"] += 1
+        if percent is not None:
+            stat["_percent_values"].append(percent)
+
+    roleplay_stats = []
+    for stat in roleplay_stats_map.values():
+        values = stat.pop("_percent_values")
+        stat["average_score_percent"] = round(sum(values) / len(values), 1) if values else None
+        stat["best_score_percent"] = round(max(values), 1) if values else None
+        roleplay_stats.append(stat)
+    roleplay_stats.sort(key=lambda item: (item["latest_completed_at"] or "", item["roleplay_id"]), reverse=True)
+
+    return {
+        "total_attempts": len(attempts),
+        "roleplays_practiced_count": len(roleplay_stats_map),
+        "average_score_percent": average_score_percent,
+        "best_score_percent": best_score_percent,
+        "recent_attempts": recent_attempts,
+        "skill_breakdown": skill_breakdown,
+        "roleplay_stats": roleplay_stats,
+    }
+
+
+@app.route('/api/user/roleplay-practice-summary', methods=['GET'])
+@token_required
+def user_roleplay_practice_summary(current_user):
+    return jsonify(_build_user_roleplay_summary_payload(current_user.id)), 200
+
+
+@app.route('/api/roleplays/<int:roleplay_id>/practice-summary', methods=['GET'])
+@token_required
+def roleplay_practice_summary(current_user, roleplay_id):
+    roleplay = Roleplay.query.filter_by(id=roleplay_id, is_active=True).first()
+    if not roleplay:
+        return _json_error("Roleplay not found.", 404, "roleplay_not_found")
+
+    attempts = (
+        RoleplayPracticeAttempt.query
+        .filter_by(user_id=current_user.id, roleplay_id=roleplay_id)
+        .order_by(RoleplayPracticeAttempt.completed_at.desc().nullslast(), RoleplayPracticeAttempt.id.desc())
+        .all()
+    )
+    if not attempts:
+        return jsonify({
+            "attempts": 0,
+            "latest_attempt": None,
+            "best_score_percent": None,
+            "skill_breakdown": [],
+        }), 200
+
+    latest_attempt = attempts[0]
+    percents = [
+        _attempt_score_percent(attempt.score, attempt.total_questions)
+        for attempt in attempts
+        if _attempt_score_percent(attempt.score, attempt.total_questions) is not None
+    ]
+    return jsonify({
+        "attempts": len(attempts),
+        "latest_attempt": _serialize_roleplay_attempt_row(latest_attempt, roleplay),
+        "best_score_percent": round(max(percents), 1) if percents else None,
+        "skill_breakdown": _aggregate_skill_totals(attempts),
+    }), 200
+
+
+def _visible_students_for_admin(current_user):
+    query = User.query.filter_by(is_superadmin=False, is_admin=False)
+    if current_user.is_superadmin:
+        return query.all()
+    return query.filter_by(institution_id=current_user.institution_id).all()
+
+
+@app.route('/api/admin/roleplay-practice-summary', methods=['GET'])
+@institution_admin_required
+def admin_roleplay_practice_summary(current_user):
+    students = _visible_students_for_admin(current_user)
+    student_ids = [student.id for student in students]
+    attempts_rows = []
+    if student_ids:
+        attempts_rows = (
+            db.session.query(RoleplayPracticeAttempt, User, Roleplay)
+            .join(User, User.id == RoleplayPracticeAttempt.user_id)
+            .outerjoin(Roleplay, Roleplay.id == RoleplayPracticeAttempt.roleplay_id)
+            .filter(RoleplayPracticeAttempt.user_id.in_(student_ids))
+            .order_by(RoleplayPracticeAttempt.completed_at.desc().nullslast(), RoleplayPracticeAttempt.id.desc())
+            .all()
+        )
+
+    attempts_by_student = defaultdict(list)
+    for attempt, user, roleplay in attempts_rows:
+        attempts_by_student[user.id].append((attempt, roleplay))
+
+    students_payload = []
+    all_percents = []
+    for student in students:
+        student_attempts = attempts_by_student.get(student.id, [])
+        percent_values = []
+        roleplay_ids = set()
+        latest_completed_at = None
+        for attempt, _ in student_attempts:
+            percent = _attempt_score_percent(attempt.score, attempt.total_questions)
+            if percent is not None:
+                percent_values.append(percent)
+                all_percents.append(percent)
+            roleplay_ids.add(attempt.roleplay_id)
+            if latest_completed_at is None and attempt.completed_at:
+                latest_completed_at = attempt.completed_at
+
+        students_payload.append({
+            "student_id": student.id,
+            "student_name": student.username,
+            "attempts": len(student_attempts),
+            "roleplays_practiced_count": len(roleplay_ids),
+            "average_score_percent": round(sum(percent_values) / len(percent_values), 1) if percent_values else None,
+            "best_score_percent": round(max(percent_values), 1) if percent_values else None,
+            "last_practiced_at": latest_completed_at.isoformat() if latest_completed_at else None,
+        })
+
+    students_payload.sort(key=lambda item: (item["last_practiced_at"] or "", item["student_name"]), reverse=True)
+    recent_activity = []
+    for attempt, user, roleplay in attempts_rows[:10]:
+        recent_activity.append({
+            "attempt_id": attempt.id,
+            "student_id": user.id,
+            "student_name": user.username,
             "roleplay_id": attempt.roleplay_id,
             "business_name": roleplay.business_name if roleplay else None,
             "event": roleplay.event if roleplay else None,
             "score": attempt.score,
             "total_questions": attempt.total_questions,
-            "results_by_skill": attempt.results_by_skill_json or {},
+            "score_percent": _attempt_score_percent(attempt.score, attempt.total_questions),
             "completed_at": attempt.completed_at.isoformat() if attempt.completed_at else None,
         })
-    return jsonify(payload), 200
+
+    weak_skill_totals = _aggregate_skill_totals([row[0] for row in attempts_rows])[:5]
+
+    students_with_attempts = len([student for student in students_payload if student["attempts"] > 0])
+    total_students = len(students_payload)
+    return jsonify({
+        "total_students": total_students,
+        "students_with_attempts": students_with_attempts,
+        "students_without_attempts": total_students - students_with_attempts,
+        "total_attempts": len(attempts_rows),
+        "average_score_percent": round(sum(all_percents) / len(all_percents), 1) if all_percents else None,
+        "recent_activity": recent_activity,
+        "students": students_payload,
+        "weak_skills": weak_skill_totals,
+    }), 200
+
+
+@app.route('/api/admin/students/<int:student_id>/roleplay-practice', methods=['GET'])
+@institution_admin_required
+def admin_student_roleplay_practice(current_user, student_id):
+    student = User.query.filter_by(id=student_id, is_superadmin=False, is_admin=False).first()
+    if not student:
+        return _json_error("Student not found.", 404, "student_not_found")
+    if not current_user.is_superadmin and student.institution_id != current_user.institution_id:
+        return _json_error("Forbidden", 403, "forbidden")
+
+    summary = _build_user_roleplay_summary_payload(student.id)
+    return jsonify({
+        "student": {
+            "id": student.id,
+            "username": student.username,
+            "institution_id": student.institution_id,
+            "institution_name": student.institution.name if student.institution else None,
+            "is_active": student.is_active,
+        },
+        **summary,
+    }), 200
 
 
 def _serialize_roleplay_assignment(assignment: RoleplayAssignment, recipient: RoleplayAssignmentRecipient | None = None):
