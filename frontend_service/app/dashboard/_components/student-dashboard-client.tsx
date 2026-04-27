@@ -17,7 +17,8 @@ type Summary = {
   current_streak_days: number;
   recent_scores: number[];
   daily_goal: { goal_questions: number; answered_today: number; remaining: number; is_complete: boolean };
-  sessions_today: number;
+  sessions_today?: number | null;
+  sessionsToday?: number | null;
   xp_to_next_level: number;
 };
 
@@ -189,6 +190,9 @@ export function StudentDashboardClient() {
     roleplayAssignmentsLoading || Boolean(roleplayAssignmentError) || visibleRoleplayAssignments.length > 0;
   const showAssignedWorkSection = isInstitutionStudent && (showObjectiveAssignments || showRoleplayAssignments);
   const levelTheme = getLevelTheme(summary?.level ?? 1);
+  const sessionsTodayRaw = summary?.sessions_today ?? summary?.sessionsToday;
+  const sessionsToday = Number.isFinite(Number(sessionsTodayRaw)) ? Number(sessionsTodayRaw) : 0;
+  const sessionsTodayLabel = `${sessionsToday} session${sessionsToday === 1 ? "" : "s"} today`;
 
   if (!summary) return <p className="text-sm text-muted-foreground">Loading your dashboard...</p>;
 
@@ -242,7 +246,7 @@ export function StudentDashboardClient() {
                 />
                 <MetricPill
                   label="Sessions today"
-                  value={`${summary.sessions_today} sessions today`}
+                  value={sessionsTodayLabel}
                 />
               </div>
               <p className="text-xs text-muted-foreground">

@@ -524,6 +524,28 @@ def _today_session_count(user_id: int) -> int:
     return quiz_sessions_today + roleplay_sessions_today
 
 
+def _is_submitted_answer(value) -> bool:
+    return isinstance(value, str) and value.strip() != ""
+
+
+def _normalized_attempt_answers(answer_map, question_ids):
+    if not isinstance(answer_map, dict):
+        return {}
+    valid_question_ids = {int(qid) for qid in (question_ids or [])}
+    normalized = {}
+    for q_id_raw, answer_value in answer_map.items():
+        try:
+            q_id = int(q_id_raw)
+        except (TypeError, ValueError):
+            continue
+        if q_id not in valid_question_ids:
+            continue
+        if not _is_submitted_answer(answer_value):
+            continue
+        normalized[str(q_id)] = answer_value.strip()
+    return normalized
+
+
 def _superadmin_exists_safe() -> bool:
     try:
         return _superadmin_exists()
@@ -1871,10 +1893,14 @@ def submit_quiz(current_user):
                 if elapsed_seconds > assignment.time_limit_minutes * 60:
                     return _json_error("Time limit exceeded for this assignment.", 403, "assignment_time_limit_exceeded")
 
+    normalized_answers = _normalized_attempt_answers(attempt.answers, attempt.question_ids)
+    attempt.answers = normalized_answers
+    flag_modified(attempt, "answers")
+
     questions = Question.query.filter(Question.id.in_(attempt.question_ids)).all()
     question_map = {q.id: q for q in questions}
     results = {}
-    for q_id_str, user_answer in attempt.answers.items():
+    for q_id_str, user_answer in normalized_answers.items():
         q_id = int(q_id_str)
         if q_id in question_map:
             question = question_map[q_id]
@@ -1891,7 +1917,7 @@ def submit_quiz(current_user):
     attempt.score = int((total_correct / attempt.total_questions) * 100) if attempt.total_questions > 0 else 0
     attempt.is_complete = True
     flag_modified(attempt, "results_by_category")
-    total_answered = len(attempt.answers or {})
+    total_answered = len(normalized_answers)
 
     state = _get_or_create_gamification(current_user.id)
     today = datetime.utcnow().date()
