@@ -510,6 +510,20 @@ def _today_question_goal_progress(user_id: int, goal: int = 20):
     }
 
 
+def _today_session_count(user_id: int) -> int:
+    today = datetime.utcnow().date()
+    quiz_sessions_today = QuizAttempt.query.filter(
+        QuizAttempt.user_id == user_id,
+        QuizAttempt.is_complete == True,
+        func.date(QuizAttempt.timestamp) == today,
+    ).count()
+    roleplay_sessions_today = RoleplayPracticeAttempt.query.filter(
+        RoleplayPracticeAttempt.user_id == user_id,
+        func.date(RoleplayPracticeAttempt.completed_at) == today,
+    ).count()
+    return quiz_sessions_today + roleplay_sessions_today
+
+
 def _superadmin_exists_safe() -> bool:
     try:
         return _superadmin_exists()
@@ -2123,6 +2137,7 @@ def get_user_gamification_summary(current_user):
         'quizzes_completed': QuizAttempt.query.filter_by(user_id=current_user.id, is_complete=True).count(),
         'recent_scores': [a.score for a in attempts if a.score is not None][:5],
         'daily_goal': _today_question_goal_progress(current_user.id),
+        'sessions_today': _today_session_count(current_user.id),
         'mastery': mastery[:8],
         'badges': [
             {
