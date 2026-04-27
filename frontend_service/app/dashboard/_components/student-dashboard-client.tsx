@@ -17,6 +17,7 @@ type Summary = {
   current_streak_days: number;
   recent_scores: number[];
   daily_goal: { goal_questions: number; answered_today: number; remaining: number; is_complete: boolean };
+  sessions_today: number;
   xp_to_next_level: number;
 };
 
@@ -240,8 +241,8 @@ export function StudentDashboardClient() {
                   value={`${summary.daily_goal.answered_today}/${summary.daily_goal.goal_questions}`}
                 />
                 <MetricPill
-                  label="Status"
-                  value={summary.daily_goal.is_complete ? "Complete" : `${summary.daily_goal.remaining} left`}
+                  label="Sessions today"
+                  value={`${summary.sessions_today} sessions today`}
                 />
               </div>
               <p className="text-xs text-muted-foreground">
