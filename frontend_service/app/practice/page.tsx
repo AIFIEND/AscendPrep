@@ -59,13 +59,12 @@ function PracticePageContent() {
 
           const savedAnswers = data.answersSoFar || {};
           setAttemptId(parseInt(attemptIdParam, 10));
-          const trimmedQuestions = requestedQuestionCount ? data.questions.slice(0, requestedQuestionCount) : data.questions;
-          setQuestions(trimmedQuestions);
+          setQuestions(data.questions);
           setSelectedAnswers(savedAnswers);
           setAssignmentMeta(data.assignment ?? null);
           setAttemptStartedAt(data.attempt?.timestamp ?? null);
-          const firstUnansweredIndex = trimmedQuestions.findIndex((q: Question) => !savedAnswers.hasOwnProperty(q.id));
-          setCurrentQuestionIndex(firstUnansweredIndex === -1 ? trimmedQuestions.length - 1 : firstUnansweredIndex);
+          const firstUnansweredIndex = data.questions.findIndex((q: Question) => !savedAnswers.hasOwnProperty(q.id));
+          setCurrentQuestionIndex(firstUnansweredIndex === -1 ? data.questions.length - 1 : firstUnansweredIndex);
         } else {
           if (!categoriesParam && !difficultiesParam) {
             router.replace("/start-quiz");
@@ -93,8 +92,7 @@ function PracticePageContent() {
             }
           );
           setAttemptId(data.attemptId);
-          const trimmedQuestions = requestedQuestionCount ? data.questions.slice(0, requestedQuestionCount) : data.questions;
-          setQuestions(trimmedQuestions);
+          setQuestions(data.questions);
         }
       } catch (error) {
         const message = error instanceof ApiError ? error.message : "Could not load quiz questions.";

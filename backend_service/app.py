@@ -546,6 +546,34 @@ def _normalized_attempt_answers(answer_map, question_ids):
     return normalized
 
 
+def _attempt_counts_payload(attempt, ordered_questions):
+    question_ids = attempt.question_ids or []
+    total_questions = len(question_ids) if question_ids else int(attempt.total_questions or 0)
+    answer_map = attempt.answers if isinstance(attempt.answers, dict) else {}
+    known_question_ids = {str(qid) for qid in question_ids}
+    attempted_answers = {
+        qid: value.strip()
+        for qid, value in answer_map.items()
+        if qid in known_question_ids and _is_submitted_answer(value)
+    }
+    attempted = len(attempted_answers)
+    question_map = {str(question["id"]): question for question in (ordered_questions or [])}
+    correct = 0
+    for qid, user_answer in attempted_answers.items():
+        question = question_map.get(qid)
+        if question and user_answer == question.get("correctAnswer"):
+            correct += 1
+    incorrect_attempted = max(attempted - correct, 0)
+    unanswered = max(total_questions - attempted, 0)
+    return {
+        "total_questions": total_questions,
+        "attempted": attempted,
+        "correct": correct,
+        "incorrect_attempted": incorrect_attempted,
+        "unanswered": unanswered,
+    }
+
+
 def _superadmin_exists_safe() -> bool:
     try:
         return _superadmin_exists()
@@ -1689,7 +1717,7 @@ def export_assignment_completion(current_user):
 def start_targeted_quiz(current_user):
     data = request.get_json(silent=True) or {}
     num_questions = int(data.get("numQuestions", 12))
-    num_questions = min(max(num_questions, 5), 40)
+    num_questions = min(max(num_questions, 1), 40)
     difficulty = data.get("difficulty")
     metrics = _compute_category_metrics(current_user.id)
     weak_categories = [m["category"] for m in metrics if m["classification"] == "weak"]
@@ -1897,7 +1925,8 @@ def submit_quiz(current_user):
     attempt.answers = normalized_answers
     flag_modified(attempt, "answers")
 
-    questions = Question.query.filter(Question.id.in_(attempt.question_ids)).all()
+    question_ids = attempt.question_ids or []
+    questions = Question.query.filter(Question.id.in_(question_ids)).all()
     question_map = {q.id: q for q in questions}
     results = {}
     for q_id_str, user_answer in normalized_answers.items():
@@ -1914,7 +1943,10 @@ def submit_quiz(current_user):
 
     attempt.results_by_category = results
     total_correct = sum(r['correct'] for r in results.values())
-    attempt.score = int((total_correct / attempt.total_questions) * 100) if attempt.total_questions > 0 else 0
+    attempt_total_questions = len(question_ids)
+    if attempt.total_questions != attempt_total_questions:
+        attempt.total_questions = attempt_total_questions
+    attempt.score = int((total_correct / attempt_total_questions) * 100) if attempt_total_questions > 0 else 0
     attempt.is_complete = True
     flag_modified(attempt, "results_by_category")
     total_answered = len(normalized_answers)
@@ -2022,7 +2054,8 @@ def get_attempt_results(current_user, attempt_id):
     id_to_q = {q.id: q for q in questions}
     ordered_questions = [id_to_q[qid].to_dict() for qid in attempt.question_ids if qid in id_to_q]
 
-    return jsonify({'attempt': attempt.to_dict(), 'questions': ordered_questions}), 200
+    counts = _attempt_counts_payload(attempt, ordered_questions)
+    return jsonify({'attempt': attempt.to_dict(), 'questions': ordered_questions, 'counts': counts}), 200
 
 
 @app.route('/api/user/progress', methods=['GET'])

@@ -20,6 +20,13 @@ type AttemptResultResponse = {
     answers: Record<string, string>;
   };
   questions: Question[];
+  counts?: {
+    total_questions: number;
+    attempted: number;
+    correct: number;
+    incorrect_attempted: number;
+    unanswered: number;
+  };
 };
 
 function isSubmittedAnswer(value: unknown): value is string {
@@ -99,7 +106,7 @@ export default function ResultsPage() {
 
   const reviewedQuestions = useMemo(() => data?.questions || [], [data]);
 
-  const correctAnswers = useMemo(() => {
+  const derivedCorrectAnswers = useMemo(() => {
     if (!data) return 0;
     return reviewedQuestions.reduce((acc, question) => {
       const userAnswer = data.attempt.answers[String(question.id)];
@@ -230,14 +237,15 @@ export default function ResultsPage() {
     );
   }
 
-  const effectiveTotalQuestions = data.attempt.total_questions || reviewedQuestions.length;
+  const effectiveTotalQuestions = data.counts?.total_questions || data.attempt.total_questions || reviewedQuestions.length;
   const questionIdSet = new Set(reviewedQuestions.map((question) => String(question.id)));
   const validAnswerEntries = Object.entries(data.attempt.answers || {}).filter(
     ([questionId, answer]) => questionIdSet.has(String(questionId)) && isSubmittedAnswer(answer)
   );
-  const answeredCount = validAnswerEntries.length;
-  const incorrectCount = Math.max(answeredCount - correctAnswers, 0);
-  const unansweredCount = Math.max(effectiveTotalQuestions - answeredCount, 0);
+  const answeredCount = data.counts?.attempted ?? validAnswerEntries.length;
+  const correctAnswers = data.counts?.correct ?? derivedCorrectAnswers;
+  const incorrectCount = data.counts?.incorrect_attempted ?? Math.max(answeredCount - correctAnswers, 0);
+  const unansweredCount = data.counts?.unanswered ?? Math.max(effectiveTotalQuestions - answeredCount, 0);
   const score = data.attempt.score ?? 0;
 
   return (
@@ -265,11 +273,11 @@ export default function ResultsPage() {
                 <div className="flex flex-col items-center rounded-lg bg-red-50 p-4 dark:bg-red-900/20">
                   <XCircle className="mb-2 h-8 w-8 text-red-500" />
                   <div className="text-xl font-bold">{incorrectCount}</div>
-                  <div className="text-sm text-gray-500">Incorrect</div>
+                  <div className="text-sm text-gray-500">Incorrect attempted</div>
                 </div>
               </div>
               <div className="text-sm text-muted-foreground">
-                Attempted: {answeredCount} / {effectiveTotalQuestions} · Correct: {correctAnswers} · Incorrect: {incorrectCount} · Unanswered: {unansweredCount}
+                Attempted: {answeredCount} / {effectiveTotalQuestions} · Correct: {correctAnswers} · Incorrect attempted: {incorrectCount} · Unanswered: {unansweredCount}
               </div>
 
               <div className="flex w-full flex-col gap-4 sm:flex-row">
