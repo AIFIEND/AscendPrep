@@ -22,6 +22,10 @@ type AttemptResultResponse = {
   questions: Question[];
 };
 
+function isSubmittedAnswer(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
 type AttemptSummary = {
   id: number;
   score: number | null;
@@ -227,7 +231,11 @@ export default function ResultsPage() {
   }
 
   const effectiveTotalQuestions = data.attempt.total_questions || reviewedQuestions.length;
-  const answeredCount = Object.keys(data.attempt.answers || {}).length;
+  const questionIdSet = new Set(reviewedQuestions.map((question) => String(question.id)));
+  const validAnswerEntries = Object.entries(data.attempt.answers || {}).filter(
+    ([questionId, answer]) => questionIdSet.has(String(questionId)) && isSubmittedAnswer(answer)
+  );
+  const answeredCount = validAnswerEntries.length;
   const incorrectCount = Math.max(answeredCount - correctAnswers, 0);
   const unansweredCount = Math.max(effectiveTotalQuestions - answeredCount, 0);
   const score = data.attempt.score ?? 0;
@@ -244,6 +252,9 @@ export default function ResultsPage() {
               <div className="relative flex h-48 w-48 items-center justify-center rounded-full border-8 border-primary/20">
                 <div className="text-4xl font-bold">{score}%</div>
               </div>
+              <div className="text-sm font-medium text-muted-foreground">
+                Score: {correctAnswers} / {effectiveTotalQuestions}
+              </div>
 
               <div className="grid w-full max-w-md grid-cols-2 gap-4">
                 <div className="flex flex-col items-center rounded-lg bg-green-50 p-4 dark:bg-green-900/20">
@@ -258,7 +269,7 @@ export default function ResultsPage() {
                 </div>
               </div>
               <div className="text-sm text-muted-foreground">
-                Total: {effectiveTotalQuestions} · Answered: {answeredCount} · Unanswered: {unansweredCount}
+                Attempted: {answeredCount} / {effectiveTotalQuestions} · Correct: {correctAnswers} · Incorrect: {incorrectCount} · Unanswered: {unansweredCount}
               </div>
 
               <div className="flex w-full flex-col gap-4 sm:flex-row">
@@ -286,22 +297,27 @@ export default function ResultsPage() {
           ) : (
             reviewedQuestions.map((question, index) => {
               const userAnswer = data.attempt.answers[String(question.id)];
+              const isAnswered = isSubmittedAnswer(userAnswer);
               const isCorrect = userAnswer === question.correctAnswer;
+              const statusLabel = !isAnswered ? "Unanswered" : isCorrect ? "Correct" : "Incorrect";
+              const statusClassName = !isAnswered ? "text-muted-foreground" : isCorrect ? "text-green-500" : "text-red-500";
 
               return (
                 <Card key={question.id} className="border-l-4 border-l-primary">
                   <CardHeader>
                     <div className="flex items-start justify-between">
                       <CardTitle className="text-lg">Question {index + 1}</CardTitle>
-                      <div className={`flex items-center ${isCorrect ? "text-green-500" : "text-red-500"}`}>
-                        {isCorrect ? <CheckCircle className="mr-1 h-5 w-5" /> : <XCircle className="mr-1 h-5 w-5" />}
-                        <span>{isCorrect ? "Correct" : "Incorrect"}</span>
+                      <div className={`flex items-center ${statusClassName}`}>
+                        {isAnswered ? (
+                          isCorrect ? <CheckCircle className="mr-1 h-5 w-5" /> : <XCircle className="mr-1 h-5 w-5" />
+                        ) : null}
+                        <span>{statusLabel}</span>
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-2">
                     <p className="font-medium">{question.question}</p>
-                    <p className="text-sm">Your answer: <span className="font-semibold">{userAnswer || "No answer"}</span></p>
+                    <p className="text-sm">Your answer: <span className="font-semibold">{isAnswered ? userAnswer : "No answer"}</span></p>
                     <p className="text-sm">Correct answer: <span className="font-semibold">{question.correctAnswer}</span></p>
                     <p className="text-sm text-muted-foreground">{question.explanation}</p>
                   </CardContent>
