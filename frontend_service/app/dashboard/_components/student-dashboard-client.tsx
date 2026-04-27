@@ -49,6 +49,57 @@ type LearnerRoleplayAssignment = {
   is_completed: boolean;
 };
 
+type LevelTheme = {
+  badgeClassName: string;
+  cardClassName: string;
+  xpPanelClassName: string;
+  progressTrackClassName: string;
+  progressIndicatorClassName: string;
+};
+
+function getLevelTheme(level: number): LevelTheme {
+  if (level >= 8) {
+    return {
+      badgeClassName:
+        "border border-amber-400/60 bg-gradient-to-r from-amber-500/25 via-fuchsia-500/20 to-cyan-400/25 text-amber-950 dark:text-amber-100",
+      cardClassName: "border-amber-400/35 bg-gradient-to-br from-amber-500/10 via-background to-fuchsia-500/10",
+      xpPanelClassName: "border-amber-400/45 bg-gradient-to-r from-amber-400/15 via-fuchsia-500/15 to-cyan-400/15",
+      progressTrackClassName: "bg-amber-100/80 dark:bg-amber-950/50",
+      progressIndicatorClassName: "bg-gradient-to-r from-amber-500 via-fuchsia-500 to-cyan-400",
+    };
+  }
+
+  if (level >= 5) {
+    return {
+      badgeClassName:
+        "border border-violet-400/60 bg-violet-500/20 text-violet-900 dark:text-violet-100",
+      cardClassName: "border-violet-400/30 bg-gradient-to-br from-violet-500/10 via-background to-fuchsia-500/10",
+      xpPanelClassName: "border-violet-400/35 bg-gradient-to-r from-violet-500/15 via-fuchsia-500/15 to-indigo-500/10",
+      progressTrackClassName: "bg-violet-100/85 dark:bg-violet-950/55",
+      progressIndicatorClassName: "bg-gradient-to-r from-violet-500 via-fuchsia-500 to-indigo-500",
+    };
+  }
+
+  if (level >= 3) {
+    return {
+      badgeClassName:
+        "border border-emerald-400/50 bg-emerald-500/20 text-emerald-900 dark:text-emerald-100",
+      cardClassName: "border-emerald-400/30 bg-gradient-to-br from-emerald-500/10 via-background to-teal-500/10",
+      xpPanelClassName: "border-emerald-400/35 bg-gradient-to-r from-emerald-500/15 via-teal-500/15 to-cyan-500/10",
+      progressTrackClassName: "bg-emerald-100/85 dark:bg-emerald-950/55",
+      progressIndicatorClassName: "bg-gradient-to-r from-emerald-500 to-teal-500",
+    };
+  }
+
+  return {
+    badgeClassName: "border border-blue-400/45 bg-blue-500/15 text-blue-900 dark:text-blue-100",
+    cardClassName: "border-blue-400/30 bg-gradient-to-br from-blue-500/10 via-background to-cyan-500/10",
+    xpPanelClassName: "border-blue-400/30 bg-gradient-to-r from-blue-500/10 via-cyan-500/10 to-sky-500/10",
+    progressTrackClassName: "bg-blue-100/85 dark:bg-blue-950/55",
+    progressIndicatorClassName: "bg-gradient-to-r from-blue-500 to-cyan-500",
+  };
+}
+
 export function StudentDashboardClient() {
   const { data: session } = useSession();
   const token = session?.user?.backendToken;
@@ -136,6 +187,7 @@ export function StudentDashboardClient() {
   const showRoleplayAssignments =
     roleplayAssignmentsLoading || Boolean(roleplayAssignmentError) || visibleRoleplayAssignments.length > 0;
   const showAssignedWorkSection = isInstitutionStudent && (showObjectiveAssignments || showRoleplayAssignments);
+  const levelTheme = getLevelTheme(summary?.level ?? 1);
 
   if (!summary) return <p className="text-sm text-muted-foreground">Loading your dashboard...</p>;
 
@@ -146,7 +198,7 @@ export function StudentDashboardClient() {
         <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
           <div className="space-y-5">
             <div className="flex flex-wrap gap-2">
-              <Badge className="w-fit bg-primary/15 text-primary hover:bg-primary/15">
+              <Badge className={`w-fit ${levelTheme.badgeClassName} hover:opacity-95`}>
                 <Sparkles className="mr-1 h-3.5 w-3.5" /> Level {summary.level}
               </Badge>
               <Badge variant="secondary" className="w-fit">
@@ -167,16 +219,20 @@ export function StudentDashboardClient() {
             </div>
           </div>
 
-          <Card className="border-primary/30 bg-background/70">
+          <Card className={levelTheme.cardClassName}>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">XP and daily mission</CardTitle>
               <CardDescription>{summary.xp_to_next_level} XP to reach level {summary.level + 1}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="rounded-xl border border-primary/20 bg-gradient-to-r from-cyan-500/10 via-violet-500/10 to-pink-500/10 p-4">
+              <div className={`rounded-xl border p-4 ${levelTheme.xpPanelClassName}`}>
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Total XP</p>
                 <p className="text-3xl font-semibold tracking-tight">{summary.xp}</p>
-                <Progress value={Math.max(10, Math.min(100, 100 - summary.xp_to_next_level))} className="mt-3 h-2.5" />
+                <Progress
+                  value={Math.max(10, Math.min(100, 100 - summary.xp_to_next_level))}
+                  className={`mt-3 h-2.5 ${levelTheme.progressTrackClassName}`}
+                  indicatorClassName={levelTheme.progressIndicatorClassName}
+                />
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <MetricPill
